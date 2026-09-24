@@ -1,0 +1,85 @@
+{
+    "armature_object": "RootNode",
+    "driver_armature": "IK1_regular",
+
+    "root_position": [
+        0.0,
+        0.0,
+        0.0
+    ],
+
+    "controls": {
+
+        "left_hand": {
+            "bone": "HAND_IK.L",
+            "position": [
+                26.862700,
+                -1.062856,
+                57.870140
+            ]
+        },
+
+        "right_hand": {
+            "bone": "HAND_IK.R",
+            "position": [
+                -26.862696,
+                -1.062856,
+                57.870140
+            ]
+        },
+
+        "left_hand_pole": {
+            "bone": "HAND_POLE.L",
+            "position": [
+                16.704334,
+                25.466198,
+                58.096741
+            ]
+        },
+
+        "right_hand_pole": {
+            "bone": "HAND_POLE.R",
+            "position": [
+                -16.704334,
+                25.466198,
+                58.096741
+            ]
+        },
+
+        "left_foot": {
+            "bone": "FOOT_IK.L",
+            "position": [
+                4.642570,
+                1.598047,
+                2.500850
+            ]
+        },
+
+        "right_foot": {
+            "bone": "FOOT_IK.R",
+            "position": [
+                -4.642570,
+                1.598047,
+                2.500850
+            ]
+        },
+
+        "left_foot_pole": {
+            "bone": "FOOT_POLE.L",
+            "position": [
+                4.642639,
+                -40.601021,
+                39.744743
+            ]
+        },
+
+        "right_foot_pole": {
+            "bone": "FOOT_POLE.R",
+            "position": [
+                -4.642639,
+                -40.601021,
+                39.744743
+            ]
+        }
+    }
+}

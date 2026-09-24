@@ -1,0 +1,33 @@
+{
+    "armature_object": "RootNode",
+    "driver_armature": "IK1_regular",
+    "root_bone": "Bone",
+
+    "ik_controls": {
+        "left_hand": "HAND_IK.L",
+        "right_hand": "HAND_IK.R",
+
+        "left_hand_pole": "HAND_POLE.L",
+        "right_hand_pole": "HAND_POLE.R",
+
+        "left_foot": "FOOT_IK.L",
+        "right_foot": "FOOT_IK.R",
+
+        "left_foot_pole": "FOOT_POLE.L",
+        "right_foot_pole": "FOOT_POLE.R"
+    },
+
+    "human_mapping": {
+        "left_hand": "left_wrist",
+        "right_hand": "right_wrist",
+
+        "left_hand_pole": "left_elbow",
+        "right_hand_pole": "right_elbow",
+
+        "left_foot": "left_ankle",
+        "right_foot": "right_ankle",
+
+        "left_foot_pole": "left_knee",
+        "right_foot_pole": "right_knee"
+    }
+}
