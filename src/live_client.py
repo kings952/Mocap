@@ -1,5 +1,6 @@
 import json
 import socket
+import shutil
 import subprocess
 import time
 
@@ -9,6 +10,7 @@ from config import (
     SOURCE_BLEND,
     LIVE_HOST,
     LIVE_PORT,
+    LIVE_TEMP_BLEND,
 )
 from retarget import build_live_targets
 
@@ -34,9 +36,16 @@ class LivePreviewClient:
             self.last_error = f"Script live no encontrado: {BLENDER_LIVE_SCRIPT}"
             return False
 
+        try:
+            LIVE_TEMP_BLEND.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(SOURCE_BLEND, LIVE_TEMP_BLEND)
+        except OSError as exc:
+            self.last_error = f"No se pudo crear el .blend temporal: {exc}"
+            return False
+
         command = [
             str(BLENDER_EXE),
-            str(SOURCE_BLEND),
+            str(LIVE_TEMP_BLEND),
             "--python",
             str(BLENDER_LIVE_SCRIPT),
             "--",
