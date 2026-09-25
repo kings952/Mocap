@@ -1,4 +1,18 @@
-.venv
+# Blender
+*.blend
+*.blend1
+*.blend2
 
-.blend
-.pyc
+# Python
+*.pyc
+__pycache__/
+
+# Entorno virtual
+.venv/
+
+# IDE
+.vscode/
+
+# Sistema operativo
+Thumbs.db
+.DS_Store
