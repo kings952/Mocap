@@ -1,6 +1,6 @@
 import json
-import socket
 import shutil
+import socket
 import subprocess
 import time
 
@@ -11,6 +11,7 @@ from config import (
     LIVE_HOST,
     LIVE_PORT,
     LIVE_TEMP_BLEND,
+    LIVE_PREVIEW_IMAGE,
 )
 from retarget import build_live_targets
 
@@ -22,6 +23,8 @@ class LivePreviewClient:
         self.connected = False
         self.last_error = ""
         self.last_send = 0.0
+        self.sent_frames = 0
+        self.last_target_count = 0
 
     def start(self):
         self.stop()
@@ -38,9 +41,11 @@ class LivePreviewClient:
 
         try:
             LIVE_TEMP_BLEND.parent.mkdir(parents=True, exist_ok=True)
+            if LIVE_PREVIEW_IMAGE.exists():
+                LIVE_PREVIEW_IMAGE.unlink()
             shutil.copy2(SOURCE_BLEND, LIVE_TEMP_BLEND)
         except OSError as exc:
-            self.last_error = f"No se pudo crear el .blend temporal: {exc}"
+            self.last_error = f"No se pudo preparar el live temporal: {exc}"
             return False
 
         command = [
@@ -53,6 +58,8 @@ class LivePreviewClient:
             LIVE_HOST,
             "--port",
             str(LIVE_PORT),
+            "--preview",
+            str(LIVE_PREVIEW_IMAGE),
         ]
 
         try:
@@ -64,21 +71,24 @@ class LivePreviewClient:
             self.last_error = str(exc)
             return False
 
-        deadline = time.time() + 12.0
+        deadline = time.time() + 15.0
         while time.time() < deadline:
             try:
                 self.sock = socket.create_connection(
                     (LIVE_HOST, LIVE_PORT),
                     timeout=0.5,
                 )
-                self.sock.settimeout(0.0)
+                self.sock.settimeout(0.5)
                 self.connected = True
                 self.last_error = ""
                 return True
             except OSError:
                 time.sleep(0.15)
 
-        self.last_error = "Blender abrio, pero no se pudo conectar al live socket."
+        self.last_error = (
+            "Blender abrio, pero el socket live no respondio. "
+            "Revisa la consola de Blender."
+        )
         return False
 
     def send(self, keypoints, calibration, frame_id, timestamp):
@@ -97,9 +107,11 @@ class LivePreviewClient:
             data = (json.dumps(packet, separators=(",", ":")) + "\n").encode("utf-8")
             self.sock.sendall(data)
             self.last_send = time.perf_counter()
+            self.sent_frames += 1
+            self.last_target_count = len(targets)
         except OSError as exc:
             self.connected = False
-            self.last_error = str(exc)
+            self.last_error = f"Socket live cerrado: {exc}"
             self._close_socket()
 
     def stop(self):

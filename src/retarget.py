@@ -1,6 +1,5 @@
 import json
 import math
-from pathlib import Path
 
 from skeleton import xy, valid, distance, angle
 from config import RIG_REFERENCE
@@ -72,9 +71,15 @@ def _rig_position(reference, name):
 
 def build_live_targets(keypoints, calibration, reference=None):
     """
-    Convierte movimiento 2D relativo a la pose calibrada en coordenadas
-    del rig. La calibracion usa hombros/brazos; las piernas nunca se
-    inventan y por tanto no se envian targets de pies si no fueron detectadas.
+    Convierte el desplazamiento 2D desde la calibracion a desplazamientos
+    3D del rig.
+
+    Cada target lleva:
+      - position: posicion absoluta de referencia + desplazamiento
+      - reference: posicion de reposo del control
+
+    Blender usa ambos valores para aplicar SOLO el desplazamiento.
+    Esto evita acumulacion/deriva frame a frame.
     """
     if not calibration:
         return {}
@@ -91,7 +96,6 @@ def build_live_targets(keypoints, calibration, reference=None):
     rig_le = _rig_position(reference, "left_hand_pole")
     rig_re = _rig_position(reference, "right_hand_pole")
 
-    # La separacion de hombros del rig define la escala espacial.
     rig_shoulder_width = max(abs(rig_ls[0] - rig_rs[0]), 1.0)
     scale = rig_shoulder_width / base_scale
 
@@ -109,12 +113,16 @@ def build_live_targets(keypoints, calibration, reference=None):
         dx = (float(current["x"]) - float(origin["x"])) * scale
         dy = (float(current["y"]) - float(origin["y"])) * scale
 
-        # Imagen: +Y hacia abajo. Rig: +Z hacia arriba.
-        return [
+        position = [
             float(base[0] + dx),
             float(base[1]),
             float(base[2] - dy),
         ]
+
+        return {
+            "position": position,
+            "reference": [float(v) for v in base],
+        }
 
     targets = {}
 
@@ -132,8 +140,7 @@ def build_live_targets(keypoints, calibration, reference=None):
     if right_pole is not None:
         targets["right_hand_pole"] = right_pole
 
-    # Importante: no hay inferencia de piernas.
-    # Los pies solo se moveran si YOLO los detecta con confianza suficiente.
+    # Las piernas no se inventan. Solo se mandan cuando YOLO las ve realmente.
     for side in ("left", "right"):
         ankle_name = f"{side}_ankle"
         knee_name = f"{side}_knee"
@@ -145,10 +152,14 @@ def build_live_targets(keypoints, calibration, reference=None):
 
         if ankle and float(ankle.get("confidence", 0.0)) >= 0.50:
             base = _rig_position(reference, foot_name)
-            targets[foot_name] = project(ankle_name, base)
+            target = project(ankle_name, base)
+            if target is not None:
+                targets[foot_name] = target
 
         if knee and float(knee.get("confidence", 0.0)) >= 0.50:
             base = _rig_position(reference, pole_name)
-            targets[pole_name] = project(knee_name, base)
+            target = project(knee_name, base)
+            if target is not None:
+                targets[pole_name] = target
 
     return targets

@@ -1,88 +1,237 @@
+import os
+
 import cv2
 import numpy as np
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QImage, QPixmap, QFont
+from PySide6.QtWidgets import (
+    QWidget,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QGroupBox,
+    QFrame,
+)
 
+from config import LIVE_PREVIEW_IMAGE
 from skeleton import SKELETON_CONNECTIONS
 
 
 class MocapGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Live Mocap")
-        self.resize(1800, 900)
-        self.setMinimumSize(1200, 700)
+
+        self.setWindowTitle("MOCAP  •  Live Capture")
+        self.resize(1700, 940)
+        self.setMinimumSize(1250, 760)
+
         self.last_camera = None
         self.last_keypoints = None
+        self.last_live_preview = None
+
         self._build_ui()
+        self._start_preview_timer()
 
     def _build_ui(self):
-        main = QHBoxLayout(self)
-        main.setContentsMargins(8, 8, 8, 8)
-        main.setSpacing(8)
+        self.setStyleSheet(
+            """
+            QWidget {
+                background: #0b0f14;
+                color: #e8edf2;
+                font-family: Segoe UI;
+                font-size: 10pt;
+            }
+            QGroupBox {
+                border: 1px solid #26313b;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding: 12px;
+                background: #11171e;
+                font-weight: 700;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 7px;
+                color: #8fd3ff;
+            }
+            QLabel#title {
+                font-size: 20pt;
+                font-weight: 800;
+                color: #f5f7fa;
+            }
+            QLabel#subtitle {
+                color: #8793a0;
+            }
+            QLabel#state {
+                font-size: 17pt;
+                font-weight: 800;
+                padding: 10px;
+                border-radius: 8px;
+                background: #17212b;
+            }
+            QLabel#status {
+                padding: 9px;
+                border-radius: 8px;
+                background: #111a22;
+                color: #b8c6d3;
+            }
+            QLabel#metricValue {
+                font-weight: 700;
+                color: #f5f7fa;
+            }
+            QPushButton {
+                min-height: 38px;
+                padding: 0 14px;
+                border: 1px solid #31404d;
+                border-radius: 8px;
+                background: #17212b;
+                color: #f5f7fa;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #20303d;
+            }
+            QPushButton:pressed {
+                background: #10171e;
+            }
+            QFrame#preview {
+                background: #05080b;
+                border: 1px solid #26313b;
+                border-radius: 8px;
+            }
+            """
+        )
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(14, 12, 14, 14)
+        root.setSpacing(10)
+
+        header = QHBoxLayout()
+        title_box = QVBoxLayout()
+
+        title = QLabel("MOCAP  •  LIVE")
+        title.setObjectName("title")
+        subtitle = QLabel(
+            "YOLO → calibración → retarget → Blender temporal"
+        )
+        subtitle.setObjectName("subtitle")
+
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+
+        self.state_label = QLabel("INICIANDO")
+        self.state_label.setObjectName("state")
+        self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.state_label.setMinimumWidth(190)
+
+        header.addLayout(title_box, 1)
+        header.addWidget(self.state_label)
+        root.addLayout(header)
+
+        content = QHBoxLayout()
+        content.setSpacing(10)
 
         self.camera_label = self._panel()
         self.skeleton_label = self._panel()
         self.live_label = self._panel()
 
-        main.addWidget(self._group("1. CAMARA / CALIBRACION", self.camera_label), 4)
-        main.addWidget(self._group("2. YOLO / ESQUELETO", self.skeleton_label), 3)
-        main.addWidget(self._group("3. LIVE BLENDER", self.live_label), 2)
+        content.addWidget(
+            self._group("01  CÁMARA / CALIBRACIÓN", self.camera_label),
+            4,
+        )
+        content.addWidget(
+            self._group("02  YOLO / ESQUELETO", self.skeleton_label),
+            3,
+        )
+        content.addWidget(
+            self._group("03  MODELO BLENDER • LIVE", self.live_label),
+            3,
+        )
 
-        side = QVBoxLayout()
-        self.state_label = QLabel("IDLE")
-        self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.state_label.setStyleSheet("font-size:18px;font-weight:bold;")
+        root.addLayout(content, 1)
 
-        self.live_status = QLabel("Blender: esperando...")
+        bottom = QHBoxLayout()
+        bottom.setSpacing(10)
+
+        status_box = QVBoxLayout()
+        status_title = QLabel("CONEXIÓN LIVE")
+        status_title.setStyleSheet("font-weight:800;color:#8fd3ff;")
+        self.live_status = QLabel("Preparando Blender...")
+        self.live_status.setObjectName("status")
         self.live_status.setWordWrap(True)
+        status_box.addWidget(status_title)
+        status_box.addWidget(self.live_status)
 
-        buttons = QHBoxLayout()
-        self.calibrate_button = QPushButton("C - CALIBRAR")
-        self.reset_button = QPushButton("R - REINICIAR")
-        self.quit_button = QPushButton("Q - SALIR")
-        buttons.addWidget(self.calibrate_button)
-        buttons.addWidget(self.reset_button)
-        buttons.addWidget(self.quit_button)
+        controls = QHBoxLayout()
+        self.calibrate_button = QPushButton("C  •  CALIBRAR")
+        self.reset_button = QPushButton("R  •  REINICIAR")
+        self.quit_button = QPushButton("Q  •  SALIR")
+        controls.addWidget(self.calibrate_button)
+        controls.addWidget(self.reset_button)
+        controls.addWidget(self.quit_button)
+        status_box.addLayout(controls)
 
-        side.addWidget(self.state_label)
-        side.addWidget(self.live_status)
-        side.addLayout(buttons)
+        metrics_group = QGroupBox("MÉTRICAS")
+        metrics = QGridLayout(metrics_group)
+        metrics.setHorizontalSpacing(18)
+        metrics.setVerticalSpacing(4)
 
-        metrics = QGridLayout()
-        group = QGroupBox("METRICAS")
-        group.setLayout(metrics)
+        names = [
+            "Camera FPS",
+            "YOLO FPS",
+            "Recording FPS",
+            "Recorded Frames",
+            "Visibility",
+            "Body Scale",
+            "Body Center",
+            "Left Elbow",
+            "Right Elbow",
+            "Left Knee",
+            "Right Knee",
+        ]
+
         self.labels = {}
-        names = ["Camera FPS","YOLO FPS","Recording FPS","Recorded Frames","Visibility","Body Scale","Body Center","Left Elbow","Right Elbow","Left Knee","Right Knee"]
-
         for row, name in enumerate(names):
             title = QLabel(name)
             value = QLabel("-")
-            value.setStyleSheet("font-weight:bold;")
+            value.setObjectName("metricValue")
             metrics.addWidget(title, row, 0)
             metrics.addWidget(value, row, 1)
             self.labels[name] = value
 
-        side.addWidget(group)
-        main.addLayout(side, 2)
+        bottom.addLayout(status_box, 2)
+        bottom.addWidget(metrics_group, 2)
+
+        root.addLayout(bottom)
 
         self.calibrate_button.clicked.connect(self._calibrate)
         self.reset_button.clicked.connect(self._reset)
         self.quit_button.clicked.connect(self.close)
 
+    def _start_preview_timer(self):
+        self.preview_timer = QTimer(self)
+        self.preview_timer.timeout.connect(self._refresh_live_preview)
+        self.preview_timer.start(100)
+
     def _group(self, title, widget):
         group = QGroupBox(title)
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(7, 7, 7, 7)
         layout.addWidget(widget)
         return group
 
     def _panel(self):
         label = QLabel()
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setMinimumSize(250, 250)
-        label.setStyleSheet("background:#111;color:white;")
+        label.setMinimumSize(300, 300)
+        label.setFrameStyle(QFrame.Shape.NoFrame)
+        label.setStyleSheet(
+            "background:#05080b;border:1px solid #202a33;border-radius:8px;"
+        )
         return label
 
     def keyPressEvent(self, event):
@@ -102,10 +251,28 @@ class MocapGUI(QWidget):
         self._draw_skeleton(keypoints)
 
     def set_state(self, state):
-        self.state_label.setText(str(state))
+        text = str(state)
+        self.state_label.setText(text)
+
+        if "ERROR" in text or "DESCONECT" in text:
+            self.state_label.setStyleSheet(
+                "font-size:17pt;font-weight:800;padding:10px;border-radius:8px;"
+                "background:#3a171b;color:#ff9da5;"
+            )
+        elif "CALIBR" in text:
+            self.state_label.setStyleSheet(
+                "font-size:17pt;font-weight:800;padding:10px;border-radius:8px;"
+                "background:#302718;color:#ffd58a;"
+            )
+        else:
+            self.state_label.setStyleSheet(
+                "font-size:17pt;font-weight:800;padding:10px;border-radius:8px;"
+                "background:#143025;color:#8ff0b8;"
+            )
 
     def update_metrics(self, metrics):
         metrics = metrics or {}
+
         self.labels["Camera FPS"].setText(f"{metrics.get('camera_fps', 0):.1f}")
         self.labels["YOLO FPS"].setText(f"{metrics.get('yolo_fps', 0):.1f}")
         self.labels["Recording FPS"].setText("10.0")
@@ -114,7 +281,9 @@ class MocapGUI(QWidget):
         self.labels["Body Scale"].setText(f"{metrics.get('body_scale', 0):.1f}")
 
         center = metrics.get("body_center")
-        self.labels["Body Center"].setText(f"{center[0]:.1f}, {center[1]:.1f}" if center else "-")
+        self.labels["Body Center"].setText(
+            f"{center[0]:.1f}, {center[1]:.1f}" if center else "-"
+        )
 
         for key, label in [
             ("left_elbow_angle", "Left Elbow"),
@@ -123,38 +292,52 @@ class MocapGUI(QWidget):
             ("right_knee_angle", "Right Knee"),
         ]:
             value = metrics.get(key)
-            self.labels[label].setText(f"{value:.1f}°" if value is not None else "-")
+            self.labels[label].setText(
+                f"{value:.1f}°" if value is not None else "-"
+            )
 
         if metrics.get("live_connected"):
             self.live_status.setText(
-                "Blender LIVE: CONECTADO\n"
-                "Modelo actualizado en tiempo real.\n"
-                "Piernas: solo deteccion real."
+                "● BLENDER CONECTADO\n"
+                "El panel 03 muestra el render del .blend temporal.\n"
+                "El archivo original permanece intacto."
             )
         else:
             self.live_status.setText(
-                "Blender LIVE: DESCONECTADO\n"
+                "○ BLENDER DESCONECTADO\n"
                 + str(metrics.get("live_error", "Iniciando Blender..."))
             )
 
-        self._draw_live_panel(metrics)
+    def _refresh_live_preview(self):
+        path = str(LIVE_PREVIEW_IMAGE)
+        if not os.path.exists(path):
+            return
 
-    def _draw_live_panel(self, metrics):
-        image = np.zeros((600, 500, 3), dtype=np.uint8)
-        cv2.putText(image, "BLENDER LIVE", (35, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 220, 255), 2, cv2.LINE_AA)
-        cv2.putText(image, "Ventana 3: Blender", (35, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(image, "Socket: " + ("OK" if metrics.get("live_connected") else "WAIT"), (35, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(image, "Mueve torso y brazos", (35, 225), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(image, "Las piernas no se inventan", (35, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
-        self._show_image(self.live_label, image)
+        try:
+            image = cv2.imread(path, cv2.IMREAD_COLOR)
+            if image is None:
+                return
+            self.last_live_preview = image
+            self._show_image(self.live_label, image)
+        except Exception:
+            # El archivo puede estar siendo reemplazado por Blender.
+            if self.last_live_preview is not None:
+                self._show_image(self.live_label, self.last_live_preview)
 
     def _show_image(self, label, frame):
         if frame is None:
-            label.clear()
             return
+
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = image.shape
-        qimage = QImage(image.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+        qimage = QImage(
+            image.data,
+            w,
+            h,
+            ch * w,
+            QImage.Format.Format_RGB888,
+        ).copy()
+
         pixmap = QPixmap.fromImage(qimage).scaled(
             label.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
@@ -163,32 +346,62 @@ class MocapGUI(QWidget):
         label.setPixmap(pixmap)
 
     def _draw_skeleton(self, keypoints):
-        image = np.zeros((800, 700, 3), dtype=np.uint8)
+        image = np.zeros((720, 640, 3), dtype=np.uint8)
 
         if keypoints:
-            visible = [p for p in keypoints.values() if p.get("confidence", 0.0) >= 0.25]
+            visible = [
+                p for p in keypoints.values()
+                if p.get("confidence", 0.0) >= 0.25
+            ]
+
             if visible:
                 xs = [p["x"] for p in visible]
                 ys = [p["y"] for p in visible]
                 min_x, max_x = min(xs), max(xs)
                 min_y, max_y = min(ys), max(ys)
-                scale = min(620 / max(max_x - min_x, 1), 720 / max(max_y - min_y, 1))
+
+                scale = min(
+                    560 / max(max_x - min_x, 1),
+                    620 / max(max_y - min_y, 1),
+                )
                 cx = (min_x + max_x) / 2
                 cy = (min_y + max_y) / 2
 
                 def convert(point):
-                    return int((point["x"] - cx) * scale + 350), int((point["y"] - cy) * scale + 400)
+                    return (
+                        int((point["x"] - cx) * scale + 320),
+                        int((point["y"] - cy) * scale + 360),
+                    )
 
                 for a, b in SKELETON_CONNECTIONS:
-                    pa, pb = keypoints.get(a), keypoints.get(b)
+                    pa = keypoints.get(a)
+                    pb = keypoints.get(b)
+
                     if not pa or not pb:
                         continue
-                    if pa.get("confidence", 0) < 0.25 or pb.get("confidence", 0) < 0.25:
+                    if pa.get("confidence", 0) < 0.25:
                         continue
-                    cv2.line(image, convert(pa), convert(pb), (0, 220, 255), 4)
+                    if pb.get("confidence", 0) < 0.25:
+                        continue
+
+                    cv2.line(
+                        image,
+                        convert(pa),
+                        convert(pb),
+                        (80, 190, 255),
+                        4,
+                        cv2.LINE_AA,
+                    )
 
                 for point in visible:
-                    cv2.circle(image, convert(point), 7, (255, 255, 255), -1)
+                    cv2.circle(
+                        image,
+                        convert(point),
+                        7,
+                        (240, 245, 250),
+                        -1,
+                        cv2.LINE_AA,
+                    )
 
         self._show_image(self.skeleton_label, image)
 
