@@ -3,11 +3,15 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-MODEL_PATH = PROJECT_ROOT / "models" / "yolo11n-pose.pt"
-
 CONFIG_DIR = PROJECT_ROOT / "config"
 CALIBRATION_DIR = PROJECT_ROOT / "calibration"
 RECORDINGS_DIR = PROJECT_ROOT / "recordings"
+
+# YOLO26-S pose is the default live model. It is more accurate than YOLO11n
+# while remaining suitable for a ~10 FPS live pipeline.
+MODEL_NAME = "yolo26s-pose.pt"
+MODEL_PATH = PROJECT_ROOT / "models" / MODEL_NAME
+FALLBACK_MODEL_PATH = PROJECT_ROOT / "models" / "yolo11n-pose.pt"
 
 ARMATURE_MAPPING = CONFIG_DIR / "armature_mapping.json"
 RIG_REFERENCE = CONFIG_DIR / "rig_reference.json"
@@ -23,7 +27,6 @@ SOURCE_BLEND = Path(
 BLENDER_GENERATOR = PROJECT_ROOT / "blender" / "generate_animation.py"
 BLENDER_LIVE_SCRIPT = PROJECT_ROOT / "blender" / "live_preview.py"
 
-# El live siempre trabaja sobre una copia. Nunca modifica SOURCE_BLEND.
 LIVE_TEMP_BLEND = RECORDINGS_DIR / "_live_preview.blend"
 LIVE_PREVIEW_IMAGE = RECORDINGS_DIR / "_live_preview.png"
 
@@ -35,8 +38,15 @@ YOLO_IMAGE_SIZE = 640
 RECORDING_FPS = 10.0
 SAMPLE_INTERVAL = 1.0 / RECORDING_FPS
 
-SMOOTHING_ALPHA = 0.30
+# Lower alpha + jump limiting makes detector noise much less visible.
+SMOOTHING_ALPHA = 0.20
+SMOOTHING_MAX_JUMP_RATIO = 0.10
+SMOOTHING_HOLD_FRAMES = 3
+
 CONFIDENCE_THRESHOLD = 0.35
+POSE_DETECTION_CONFIDENCE = 0.30
+POSE_IOU = 0.55
+POSE_TRACKER = "bytetrack.yaml"
 
 CALIBRATION_FRAMES = 20
 CALIBRATION_MIN_CONFIDENCE = 0.45
@@ -47,15 +57,14 @@ ALWAYS_KEEP_LAST = True
 
 PREVIEW_FILE = RECORDINGS_DIR / "preview.glb"
 PREVIEW_FPS = 10.0
-
 OUTPUT_EXTENSION = ".blend"
 
 LIVE_HOST = "127.0.0.1"
 LIVE_PORT = 8765
 LIVE_SCALE = 1.0
 
-
 def ensure_directories():
     CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (PROJECT_ROOT / "models").mkdir(parents=True, exist_ok=True)

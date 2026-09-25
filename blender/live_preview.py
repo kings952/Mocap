@@ -14,7 +14,6 @@ PORT = 8765
 PREVIEW_PATH = ""
 ARMATURE_NAME = "IK1_regular"
 
-# The rig may have accidental trailing spaces in imported bone names.
 CONTROL_NAMES = {
     "hip": ("hip",),
     "left_hand": ("HAND_IK.L",),
@@ -51,6 +50,7 @@ def parse_args():
         return
 
     args = sys.argv[sys.argv.index("--") + 1:]
+
     for i, value in enumerate(args):
         if value == "--host" and i + 1 < len(args):
             HOST = args[i + 1]
@@ -97,8 +97,10 @@ def receiver():
 
                 while b"\n" in buffer:
                     raw, buffer = buffer.split(b"\n", 1)
+
                     if not raw:
                         continue
+
                     try:
                         enqueue(json.loads(raw.decode("utf-8")))
                     except Exception as exc:
@@ -127,17 +129,17 @@ def normalize_name(name):
 
 def resolve_pose_bone(armature, logical_name):
     candidates = CONTROL_NAMES.get(logical_name, ())
+
     if not candidates:
         return None
 
-    # Exact first.
     for candidate in candidates:
         bone = armature.pose.bones.get(candidate)
         if bone is not None:
             return bone
 
-    # Then tolerate leading/trailing spaces and case differences.
     wanted = {normalize_name(candidate) for candidate in candidates}
+
     for bone in armature.pose.bones:
         if normalize_name(bone.name) in wanted:
             return bone
@@ -147,10 +149,12 @@ def resolve_pose_bone(armature, logical_name):
 
 def resolve_static_bone(armature, name):
     exact = armature.pose.bones.get(name)
+
     if exact is not None:
         return exact
 
     wanted = normalize_name(name)
+
     for bone in armature.pose.bones:
         if normalize_name(bone.name) == wanted:
             return bone
@@ -181,6 +185,7 @@ def set_pose_translation(pose_bone, mat):
 
     loc = mat.to_translation()
     rest = pose_bone.bone.matrix_local.copy()
+
     par_rest = (
         pose_bone.bone.parent.matrix_local.copy()
         if pose_bone.bone.parent
@@ -191,93 +196,7 @@ def set_pose_translation(pose_bone, mat):
     pose_bone.location = q @ loc
 
 
-def apply_target(pose_bone, target):
-    if not isinstance(target, dict):
-        return False
-
-    position = target.get("position")
-    reference = target.get("reference")
-
-    if not position or not reference:
-        return False
-
-    delta = Vector(position) - Vector(reference)
-
-    initial = _initial_visual_translation.get(
-        pose_bone.name,
-        pose_bone.matrix.translation.copy(),
-    )
-
-    base_matrix = pose_bone.matrix.copy()
-    base_matrix.translation = initial + delta
-
-    local_matrix = get_pose_matrix_in_other_space(base_matrix, pose_bone)
-    set_pose_translation(pose_bone, local_matrix)
-    return True
-
-
-def capture_initial_pose(armature):
-    _initial_visual_translation.clear()
-    _static_matrix_basis.clear()
-
-    bpy.context.view_layer.update()
-
-    for logical_name in CONTROL_NAMES:
-        bone = resolve_pose_bone(armature, logical_name)
-        if bone is not None:
-            _initial_visual_translation[bone.name] = bone.matrix.translation.copy()
-
-    for static_name in STATIC_BONE_NAMES:
-        bone = resolve_static_bone(armature, static_name)
-        if bone is not None:
-            _static_matrix_basis[bone.name] = bone.matrix_basis.copy()
-
-    print(
-        f"[LIVE] Pose inicial: {len(_initial_visual_translation)} controles; "
-        f"estaticos={len(_static_matrix_basis)}",
-        flush=True,
-    )
-
-
-def restore_static_bones(armature):
-    # Bone is the total-displacement controller. It must never be driven by mocap.
-    for name, matrix_basis in _static_matrix_basis.items():
-        bone = armature.pose.bones.get(name)
-        if bone is not None:
-            bone.matrix_basis = matrix_basis.copy()
-
-
-def apply_packet(armature, packet):
-    targets = packet.get("targets", {})
-    applied = 0
-
-    for logical_name, target in targets.items():
-        # Deliberate hard stop: the total displacement bone is never a target.
-        if normalize_name(logical_name) == "bone":
-            continue
-
-        bone = resolve_pose_bone(armature, logical_name)
-        if bone is None:
-            continue
-
-        if apply_target(bone, target):
-            applied += 1
-
-    bpy.context.view_layer.update()
-
-    # Constraints may try to move the root during evaluation; restore it.
-    restore_static_bones(armature)
-    bpy.context.view_layer.update()
-
-    return applied
-
-
 def geometry_bounds(armature):
-    """
-    Bounds of the actual visible model, not the armature bones.
-    This avoids framing the rig incorrectly and keeps the complete body visible.
-    """
-    depsgraph = bpy.context.evaluated_depsgraph_get()
     points = []
 
     armature_children = set()
@@ -285,9 +204,11 @@ def geometry_bounds(armature):
 
     while stack:
         parent = stack.pop()
+
         for child in parent.children:
             if child in armature_children:
                 continue
+
             armature_children.add(child)
             stack.append(child)
 
@@ -315,13 +236,17 @@ def geometry_bounds(armature):
             points.append(armature.matrix_world @ bone.tail)
 
     if not points:
-        return Vector((0.0, 0.0, 50.0)), Vector((40.0, 40.0, 100.0))
+        return (
+            Vector((0.0, 0.0, 50.0)),
+            Vector((40.0, 40.0, 100.0)),
+        )
 
     min_v = Vector((
         min(p.x for p in points),
         min(p.y for p in points),
         min(p.z for p in points),
     ))
+
     max_v = Vector((
         max(p.x for p in points),
         max(p.y for p in points),
@@ -331,10 +256,144 @@ def geometry_bounds(armature):
     return (min_v + max_v) * 0.5, max_v - min_v
 
 
+def clamp_delta_to_model(delta, model_size, ratio):
+    dimensions = [
+        abs(float(model_size.x)),
+        abs(float(model_size.y)),
+        abs(float(model_size.z)),
+    ]
+
+    reference_size = max(dimensions)
+
+    if reference_size <= 0.000001:
+        return Vector((0.0, 0.0, 0.0))
+
+    limit = reference_size * ratio
+
+    if delta.length <= limit:
+        return delta
+
+    return delta.normalized() * limit
+
+
+def apply_target(armature, pose_bone, target):
+    if not isinstance(target, dict):
+        return False
+
+    position = target.get("position")
+    reference = target.get("reference")
+
+    if not position or not reference:
+        return False
+
+    delta = Vector(position) - Vector(reference)
+
+    # A .blend can be imported at centimeters, meters, or an arbitrary scale.
+    # Never allow a mocap packet to move a control farther than a percentage of
+    # the real model size.
+    _, model_size = geometry_bounds(armature)
+
+    logical_gain = float(target.get("gain", 1.0))
+    logical_gain = max(0.0, min(1.0, logical_gain))
+    delta *= logical_gain
+
+    if normalize_name(pose_bone.name) == "hip":
+        delta = clamp_delta_to_model(delta, model_size, 0.20)
+    elif "pole" in normalize_name(pose_bone.name):
+        delta = clamp_delta_to_model(delta, model_size, 0.08)
+    elif "foot_ik" in normalize_name(pose_bone.name) or "hand_ik" in normalize_name(
+        pose_bone.name
+    ):
+        delta = clamp_delta_to_model(delta, model_size, 0.22)
+    else:
+        delta = clamp_delta_to_model(delta, model_size, 0.18)
+
+    initial = _initial_visual_translation.get(
+        pose_bone.name,
+        pose_bone.matrix.translation.copy(),
+    )
+
+    base_matrix = pose_bone.matrix.copy()
+    base_matrix.translation = initial + delta
+
+    local_matrix = get_pose_matrix_in_other_space(
+        base_matrix,
+        pose_bone,
+    )
+
+    set_pose_translation(pose_bone, local_matrix)
+    return True
+
+
+def capture_initial_pose(armature):
+    _initial_visual_translation.clear()
+    _static_matrix_basis.clear()
+
+    bpy.context.view_layer.update()
+
+    for logical_name in CONTROL_NAMES:
+        bone = resolve_pose_bone(armature, logical_name)
+
+        if bone is not None:
+            _initial_visual_translation[bone.name] = (
+                bone.matrix.translation.copy()
+            )
+
+    for static_name in STATIC_BONE_NAMES:
+        bone = resolve_static_bone(armature, static_name)
+
+        if bone is not None:
+            _static_matrix_basis[bone.name] = bone.matrix_basis.copy()
+
+    print(
+        f"[LIVE] Pose inicial: "
+        f"{len(_initial_visual_translation)} controles; "
+        f"estaticos={len(_static_matrix_basis)}",
+        flush=True,
+    )
+
+
+def restore_static_bones(armature):
+    for name, matrix_basis in _static_matrix_basis.items():
+        bone = armature.pose.bones.get(name)
+
+        if bone is not None:
+            bone.matrix_basis = matrix_basis.copy()
+
+
+def apply_packet(armature, packet):
+    targets = packet.get("targets", {})
+    applied = 0
+
+    for logical_name, target in targets.items():
+        if normalize_name(logical_name) == "bone":
+            continue
+
+        bone = resolve_pose_bone(armature, logical_name)
+
+        if bone is None:
+            continue
+
+        if apply_target(armature, bone, target):
+            applied += 1
+
+    bpy.context.view_layer.update()
+
+    restore_static_bones(armature)
+
+    bpy.context.view_layer.update()
+
+    return applied
+
+
 def look_at(obj, target):
     direction = Vector(target) - obj.location
+
     if direction.length > 0.0001:
-        obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+        obj.rotation_euler = direction.to_track_quat(
+            "-Z",
+            "Y",
+        ).to_euler()
 
 
 def update_preview_camera(armature, force=False):
@@ -343,39 +402,79 @@ def update_preview_camera(armature, force=False):
     scene = bpy.context.scene
     center, size = geometry_bounds(armature)
 
-    width = max(float(size.x), 1.0)
-    height = max(float(size.z), 1.0)
-    depth = max(float(size.y), 1.0)
+    width = max(float(size.x), 0.0001)
+    height = max(float(size.z), 0.0001)
+    depth = max(float(size.y), 0.0001)
 
-    # Portrait panel: the horizontal dimension also limits an orthographic camera.
-    aspect = scene.render.resolution_x / max(scene.render.resolution_y, 1)
-    required_vertical = max(height, width / max(aspect, 0.1))
+    aspect = scene.render.resolution_x / max(
+        scene.render.resolution_y,
+        1,
+    )
+
+    required_vertical = max(
+        height,
+        width / max(aspect, 0.1),
+    )
+
     required_vertical *= 1.18
 
     if _preview_center is None or force:
         _preview_center = center.copy()
     else:
-        _preview_center = _preview_center.lerp(center, 0.22)
+        _preview_center = _preview_center.lerp(
+            center,
+            0.15,
+        )
 
     if _preview_scale is None or force:
         _preview_scale = required_vertical
     else:
-        _preview_scale = _preview_scale * 0.78 + required_vertical * 0.22
+        _preview_scale = (
+            _preview_scale * 0.85
+            + required_vertical * 0.15
+        )
 
     camera = _preview_camera
+
     if camera is None:
-        camera_data = bpy.data.cameras.new("MOCAP_LIVE_CAMERA_DATA")
-        camera = bpy.data.objects.new("MOCAP_LIVE_CAMERA", camera_data)
+        camera_data = bpy.data.cameras.new(
+            "MOCAP_LIVE_CAMERA_DATA"
+        )
+
+        camera = bpy.data.objects.new(
+            "MOCAP_LIVE_CAMERA",
+            camera_data,
+        )
+
         scene.collection.objects.link(camera)
         _preview_camera = camera
 
     camera.data.type = "ORTHO"
-    camera.data.ortho_scale = max(_preview_scale, 10.0)
+    camera.data.ortho_scale = max(
+        _preview_scale,
+        0.0001,
+    )
 
-    distance = max(width, height, depth, 50.0) * 2.5
-    camera.location = _preview_center + Vector((0.0, -distance, 0.0))
-    camera.data.clip_start = 0.1
-    camera.data.clip_end = max(distance * 4.0, 1000.0)
+    distance = max(
+        width,
+        height,
+        depth,
+        0.1,
+    ) * 3.0
+
+    camera.location = _preview_center + Vector(
+        (0.0, -distance, 0.0)
+    )
+
+    camera.data.clip_start = max(
+        distance * 0.001,
+        0.00001,
+    )
+
+    camera.data.clip_end = max(
+        distance * 8.0,
+        1.0,
+    )
 
     look_at(camera, _preview_center)
     scene.camera = camera
@@ -389,9 +488,10 @@ def setup_preview_scene(armature):
     scene.display.shading.color_type = "MATERIAL"
     scene.display.shading.show_shadows = True
 
-    scene.render.resolution_x = 520
-    scene.render.resolution_y = 720
+    scene.render.resolution_x = 560
+    scene.render.resolution_y = 760
     scene.render.resolution_percentage = 100
+
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
     scene.render.image_settings.color_depth = "8"
@@ -403,10 +503,13 @@ def setup_preview_scene(armature):
     except Exception:
         pass
 
-    update_preview_camera(armature, force=True)
+    update_preview_camera(
+        armature,
+        force=True,
+    )
 
     print(
-        f"[LIVE] Preview encuadrado a geometria completa: {PREVIEW_PATH}",
+        f"[LIVE] Preview estable: {PREVIEW_PATH}",
         flush=True,
     )
 
@@ -418,19 +521,31 @@ def render_preview(armature, force_camera=False):
         return
 
     now = time.perf_counter()
-    if not force_camera and (now - _last_render_time) < _RENDER_INTERVAL:
+
+    if (
+        not force_camera
+        and now - _last_render_time < _RENDER_INTERVAL
+    ):
         return
 
-    update_preview_camera(armature, force=force_camera)
+    update_preview_camera(
+        armature,
+        force=force_camera,
+    )
 
     scene = bpy.context.scene
     scene.render.filepath = PREVIEW_PATH
 
     try:
-        bpy.ops.render.render(write_still=True)
+        bpy.ops.render.render(
+            write_still=True,
+        )
         _last_render_time = now
     except Exception as exc:
-        print(f"[LIVE] Error render preview: {exc}", flush=True)
+        print(
+            f"[LIVE] Error render preview: {exc}",
+            flush=True,
+        )
 
 
 def setup_view():
@@ -440,11 +555,14 @@ def setup_view():
                 continue
 
             region_3d = area.spaces.active.region_3d
+
             if region_3d is None:
                 continue
 
             region_3d.view_perspective = "ORTHO"
-            region_3d.view_location = Vector((0.0, 0.0, 40.0))
+            region_3d.view_location = Vector(
+                (0.0, 0.0, 40.0)
+            )
             region_3d.view_distance = 110.0
 
 
@@ -453,16 +571,23 @@ def tick():
         return None
 
     packet = None
+
     with _lock:
         if _queue:
             packet = _queue.pop()
 
     if packet is not None:
-        armature = bpy.data.objects.get(ARMATURE_NAME)
+        armature = bpy.data.objects.get(
+            ARMATURE_NAME
+        )
 
         if armature is not None:
             try:
-                applied = apply_packet(armature, packet)
+                applied = apply_packet(
+                    armature,
+                    packet,
+                )
+
                 render_preview(armature)
 
                 print(
@@ -471,8 +596,12 @@ def tick():
                     f"applied={applied}",
                     flush=True,
                 )
+
             except Exception as exc:
-                print(f"[LIVE] Error aplicando pose: {exc}", flush=True)
+                print(
+                    f"[LIVE] Error aplicando pose: {exc}",
+                    flush=True,
+                )
 
     return 0.02
 
@@ -480,7 +609,10 @@ def tick():
 def main():
     parse_args()
 
-    armature = bpy.data.objects.get(ARMATURE_NAME)
+    armature = bpy.data.objects.get(
+        ARMATURE_NAME
+    )
+
     if armature is None:
         raise RuntimeError(
             f"No existe el armature '{ARMATURE_NAME}'."
@@ -489,17 +621,36 @@ def main():
     setup_view()
     capture_initial_pose(armature)
     setup_preview_scene(armature)
+    render_preview(
+        armature,
+        force_camera=True,
+    )
 
-    render_preview(armature, force_camera=True)
-
-    thread = threading.Thread(target=receiver, daemon=True)
+    thread = threading.Thread(
+        target=receiver,
+        daemon=True,
+    )
     thread.start()
 
     print("[LIVE] Modelo listo.", flush=True)
-    print("[LIVE] hip mueve Genesis; Bone permanece estatico.", flush=True)
-    print("[LIVE] Nombres IK toleran espacios al final.", flush=True)
+    print(
+        "[LIVE] Retarget normalizado + limite por escala del .blend.",
+        flush=True,
+    )
+    print(
+        "[LIVE] hip mueve Genesis; Bone permanece estatico.",
+        flush=True,
+    )
+    print(
+        "[LIVE] Nombres IK toleran espacios al final.",
+        flush=True,
+    )
 
-    bpy.app.timers.register(tick, first_interval=0.02, persistent=True)
+    bpy.app.timers.register(
+        tick,
+        first_interval=0.02,
+        persistent=True,
+    )
 
 
 main()

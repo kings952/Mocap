@@ -1,42 +1,88 @@
+from pathlib import Path
+
 from ultralytics import YOLO
 
-from config import MODEL_PATH, YOLO_IMAGE_SIZE
+from config import (
+    FALLBACK_MODEL_PATH,
+    MODEL_PATH,
+    MODEL_NAME,
+    POSE_DETECTION_CONFIDENCE,
+    POSE_IOU,
+    POSE_TRACKER,
+    YOLO_IMAGE_SIZE,
+)
+from skeleton import KEYPOINT_NAMES
 
 
 class PoseDetector:
-
     def __init__(self):
-        print(f"[YOLO] Cargando: {MODEL_PATH}")
-        self.model = YOLO(str(MODEL_PATH))
+        self.model_path = MODEL_PATH
+        self.model_name = MODEL_NAME
+        self.tracking_ready = False
+
+        print(f"[YOLO] Modelo preferido: {MODEL_NAME}", flush=True)
+
+        try:
+            self.model = YOLO(str(MODEL_PATH))
+        except Exception as exc:
+            # Ultralytics can download official checkpoints when the requested
+            # file is not local. If that fails, keep the existing local model.
+            print(f"[YOLO] No se pudo cargar {MODEL_PATH}: {exc}", flush=True)
+
+            if not Path(FALLBACK_MODEL_PATH).exists():
+                raise RuntimeError(
+                    "No se pudo cargar el modelo YOLO26-S y tampoco existe "
+                    f"el fallback: {FALLBACK_MODEL_PATH}"
+                ) from exc
+
+            self.model_path = FALLBACK_MODEL_PATH
+            self.model_name = FALLBACK_MODEL_PATH.name
+            print(
+                f"[YOLO] Usando fallback local: {self.model_name}",
+                flush=True,
+            )
+            self.model = YOLO(str(FALLBACK_MODEL_PATH))
 
     def detect(self, frame):
-        results = self.model.predict(
-            source=frame,
-            imgsz=YOLO_IMAGE_SIZE,
-            verbose=False,
-            conf=0.25,
-        )
+        try:
+            results = self.model.track(
+                source=frame,
+                persist=True,
+                tracker=POSE_TRACKER,
+                imgsz=YOLO_IMAGE_SIZE,
+                conf=POSE_DETECTION_CONFIDENCE,
+                iou=POSE_IOU,
+                verbose=False,
+            )
+        except Exception as exc:
+            # Some older local Ultralytics installations may not expose the
+            # selected tracker correctly. Prediction remains available.
+            if self.tracking_ready:
+                raise
+            print(f"[YOLO] Tracker no disponible, usando predict: {exc}", flush=True)
+            self.tracking_ready = True
+            results = self.model.predict(
+                source=frame,
+                imgsz=YOLO_IMAGE_SIZE,
+                conf=POSE_DETECTION_CONFIDENCE,
+                iou=POSE_IOU,
+                verbose=False,
+            )
 
         if not results:
             return None
 
         result = results[0]
-
         if result.keypoints is None or len(result.keypoints.xy) == 0:
             return None
 
-        index = 0
-        if result.boxes is not None and len(result.boxes.conf) > 0:
-            index = int(result.boxes.conf.cpu().numpy().argmax())
-
+        index = self._best_person_index(result)
         points = result.keypoints.xy[index].cpu().numpy()
 
         if result.keypoints.conf is not None:
             confidences = result.keypoints.conf[index].cpu().numpy()
         else:
             confidences = [1.0] * len(points)
-
-        from skeleton import KEYPOINT_NAMES
 
         keypoints = {}
         for i, name in enumerate(KEYPOINT_NAMES):
@@ -50,3 +96,11 @@ class PoseDetector:
             }
 
         return keypoints
+
+    @staticmethod
+    def _best_person_index(result):
+        if result.boxes is None or len(result.boxes.conf) == 0:
+            return 0
+
+        confidences = result.boxes.conf.cpu().numpy()
+        return int(confidences.argmax())

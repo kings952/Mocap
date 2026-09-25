@@ -12,7 +12,12 @@ from retarget import build_packet
 from gui import MocapGUI
 from calibration_ui import draw_calibration_overlay
 from live_client import LivePreviewClient
-from config import SMOOTHING_ALPHA, RECORDING_FPS, RECORDINGS_DIR, ensure_directories
+from config import (
+    SMOOTHING_ALPHA,
+    RECORDING_FPS,
+    RECORDINGS_DIR,
+    ensure_directories,
+)
 
 
 class MocapWorker(QObject):
@@ -53,6 +58,7 @@ class MocapWorker(QObject):
                 now = time.perf_counter()
                 delta = now - self.last_time
                 self.last_time = now
+
                 if delta > 0:
                     fps = 1.0 / delta
                     self.camera_fps = self.camera_fps * 0.9 + fps * 0.1
@@ -60,6 +66,7 @@ class MocapWorker(QObject):
                 start = time.perf_counter()
                 keypoints = self.detector.detect(frame)
                 inference_time = time.perf_counter() - start
+
                 if inference_time > 0:
                     fps = 1.0 / inference_time
                     self.yolo_fps = self.yolo_fps * 0.9 + fps * 0.1
@@ -82,14 +89,20 @@ class MocapWorker(QObject):
                         "state": (
                             "CALIBRADO"
                             if done
-                            else f"CALIBRANDO {self.calibration.stable_frames}/{self.calibration.required_frames}"
+                            else (
+                                f"CALIBRANDO "
+                                f"{self.calibration.stable_frames}/"
+                                f"{self.calibration.required_frames}"
+                            )
                         ),
                         "calibration_progress": self.calibration.progress(),
                         "calibration_score": self.calibration.last_score,
                         "calibration_reason": self.calibration.last_reason,
                         "live_connected": self.live.connected,
                         "live_error": self.live.last_error,
+                        "model_name": self.detector.model_name,
                     })
+
                     self.frame_ready.emit(display, keypoints, metrics)
 
                     if done:
@@ -99,6 +112,7 @@ class MocapWorker(QObject):
 
                     if self.calibration.calibration and keypoints:
                         self._send_live(keypoints, now)
+
                     continue
 
                 if keypoints:
@@ -123,11 +137,18 @@ class MocapWorker(QObject):
                     "state": state,
                     "live_connected": self.live.connected,
                     "live_error": self.live.last_error,
+                    "model_name": (
+                        self.detector.model_name
+                        if self.detector
+                        else "-"
+                    ),
                 })
+
                 self.frame_ready.emit(frame, keypoints, metrics)
 
         except Exception as exc:
             self.error.emit(str(exc))
+
         finally:
             if self.camera:
                 self.camera.release()
@@ -137,6 +158,7 @@ class MocapWorker(QObject):
     def _send_live(self, keypoints, timestamp):
         if not self.calibration.calibration:
             return
+
         self.live.send(
             keypoints,
             self.calibration.calibration,
@@ -147,14 +169,22 @@ class MocapWorker(QObject):
 
     def _metrics(self, keypoints):
         metrics = {}
+
         if keypoints:
-            metrics = build_packet(keypoints, 0, 0.0)["metrics"]
+            metrics = build_packet(
+                keypoints,
+                0,
+                0.0,
+            )["metrics"]
+
         metrics["camera_fps"] = self.camera_fps
         metrics["yolo_fps"] = self.yolo_fps
         metrics["recorded_frames"] = self.frames_counter
+
         return metrics
 
     def start_calibration(self):
+        self.smoother.reset()
         self.calibration.start()
         self.recording = False
         self.recorder.reset()
@@ -167,6 +197,7 @@ class MocapWorker(QObject):
     def save_recording(self):
         if len(self.recorder) == 0:
             return None
+
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         path = RECORDINGS_DIR / f"mocap_{timestamp}.json"
         self.recorder.save(path)
@@ -176,6 +207,7 @@ class MocapWorker(QObject):
 class MocapApplication:
     def __init__(self):
         ensure_directories()
+
         self.gui = MocapGUI()
         self.thread = QThread()
         self.worker = MocapWorker()

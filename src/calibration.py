@@ -23,7 +23,6 @@ CALIBRATION_POINTS = [
 
 
 class CalibrationManager:
-
     def __init__(self):
         self.active = False
         self.stable_frames = 0
@@ -78,23 +77,20 @@ class CalibrationManager:
         )
 
     def _pose_score(self, p):
-        # Hombros son obligatorios.
-        if not self._valid(p, "left_shoulder") or not self._valid(p, "right_shoulder"):
+        if not self._valid(p, "left_shoulder") or not self._valid(
+            p, "right_shoulder"
+        ):
             return 0.0, "Muestra ambos hombros"
 
         ls = p["left_shoulder"]
         rs = p["right_shoulder"]
 
         shoulder_width = abs(ls["x"] - rs["x"])
-        if shoulder_width < 25:
+        if shoulder_width < 20:
             return 0.0, "Acercate un poco a la camara"
 
-        score = 0.0
+        score = 0.25
 
-        # Hombros centrados y separados.
-        score += 0.25
-
-        # Brazos: si estan visibles, se exige una T suave.
         arm_points = [
             "left_elbow", "right_elbow",
             "left_wrist", "right_wrist",
@@ -122,7 +118,6 @@ class CalibrationManager:
                 return score, "Abre los brazos hacia los lados"
 
         elif len(visible_arms) >= 2:
-            # Permite calibrar aunque una parte del brazo este parcialmente oculta.
             score += 0.35
             return score, "Mantente quieto; faltan puntos de un brazo"
 
@@ -135,7 +130,8 @@ class CalibrationManager:
         point = p.get(name)
         return (
             point is not None
-            and float(point.get("confidence", 0.0)) >= CALIBRATION_MIN_CONFIDENCE
+            and float(point.get("confidence", 0.0))
+            >= CALIBRATION_MIN_CONFIDENCE
         )
 
     def _finish(self):
@@ -151,6 +147,7 @@ class CalibrationManager:
                 for sample in self.samples
                 if name in sample
             ]
+
             if not values:
                 continue
 
@@ -173,12 +170,18 @@ class CalibrationManager:
             1.0,
         )
 
+        # Store normalized-space information explicitly. The live retarget
+        # uses this instead of assuming a fixed camera resolution.
         self.calibration = {
-            "version": 2,
+            "version": 3,
             "timestamp": time.time(),
             "keypoints": calibration,
             "center": center,
             "body_scale": float(shoulder_width),
+            "space": {
+                "type": "shoulder_normalized_2d",
+                "reference_width_px": float(shoulder_width),
+            },
         }
 
         self.active = False

@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QImage, QPixmap, QFont
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget,
     QLabel,
@@ -25,8 +25,8 @@ class MocapGUI(QWidget):
         super().__init__()
 
         self.setWindowTitle("MOCAP  •  Live Capture")
-        self.resize(1700, 940)
-        self.setMinimumSize(1250, 760)
+        self.resize(1760, 960)
+        self.setMinimumSize(1280, 780)
 
         self.last_camera = None
         self.last_keypoints = None
@@ -39,55 +39,61 @@ class MocapGUI(QWidget):
         self.setStyleSheet(
             """
             QWidget {
-                background: #0b0f14;
+                background: #090d12;
                 color: #e8edf2;
                 font-family: Segoe UI;
                 font-size: 10pt;
             }
             QGroupBox {
                 border: 1px solid #26313b;
-                border-radius: 10px;
+                border-radius: 12px;
                 margin-top: 12px;
-                padding: 12px;
-                background: #11171e;
+                padding: 10px;
+                background: #10161d;
                 font-weight: 700;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 7px;
-                color: #8fd3ff;
+                color: #91d8ff;
             }
             QLabel#title {
-                font-size: 20pt;
+                font-size: 22pt;
                 font-weight: 800;
                 color: #f5f7fa;
             }
             QLabel#subtitle {
                 color: #8793a0;
+                font-size: 10pt;
             }
             QLabel#state {
                 font-size: 17pt;
                 font-weight: 800;
-                padding: 10px;
-                border-radius: 8px;
+                padding: 10px 16px;
+                border-radius: 10px;
                 background: #17212b;
             }
             QLabel#status {
-                padding: 9px;
-                border-radius: 8px;
+                padding: 10px;
+                border-radius: 9px;
                 background: #111a22;
-                color: #b8c6d3;
+                color: #c2ced8;
             }
             QLabel#metricValue {
                 font-weight: 700;
                 color: #f5f7fa;
             }
+            QLabel#liveHint {
+                color: #91d8ff;
+                font-weight: 700;
+                padding: 3px 4px;
+            }
             QPushButton {
-                min-height: 38px;
-                padding: 0 14px;
+                min-height: 40px;
+                padding: 0 15px;
                 border: 1px solid #31404d;
-                border-radius: 8px;
+                border-radius: 9px;
                 background: #17212b;
                 color: #f5f7fa;
                 font-weight: 700;
@@ -115,8 +121,9 @@ class MocapGUI(QWidget):
 
         title = QLabel("MOCAP  •  LIVE")
         title.setObjectName("title")
+
         subtitle = QLabel(
-            "YOLO → calibración → retarget → Blender temporal"
+            "YOLO Pose + tracking  →  calibración normalizada  →  IK Blender"
         )
         subtitle.setObjectName("subtitle")
 
@@ -126,7 +133,7 @@ class MocapGUI(QWidget):
         self.state_label = QLabel("INICIANDO")
         self.state_label.setObjectName("state")
         self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.state_label.setMinimumWidth(190)
+        self.state_label.setMinimumWidth(220)
 
         header.addLayout(title_box, 1)
         header.addWidget(self.state_label)
@@ -145,12 +152,12 @@ class MocapGUI(QWidget):
         )
         content.addWidget(
             self._group("02  YOLO / ESQUELETO", self.skeleton_label),
-            3,
+            2,
         )
-        content.addWidget(
-            self._group("03  MODELO BLENDER • LIVE", self.live_label),
-            3,
-        )
+
+        live_group = self._group("03  MODELO BLENDER • LIVE", self.live_label)
+        live_group.setMinimumWidth(440)
+        content.addWidget(live_group, 4)
 
         root.addLayout(content, 1)
 
@@ -159,17 +166,27 @@ class MocapGUI(QWidget):
 
         status_box = QVBoxLayout()
         status_title = QLabel("CONEXIÓN LIVE")
-        status_title.setStyleSheet("font-weight:800;color:#8fd3ff;")
+        status_title.setStyleSheet("font-weight:800;color:#91d8ff;")
+
         self.live_status = QLabel("Preparando Blender...")
         self.live_status.setObjectName("status")
         self.live_status.setWordWrap(True)
+
+        self.live_hint = QLabel(
+            "El panel 03 es el modelo real del .blend temporal, no un esqueleto 2D."
+        )
+        self.live_hint.setObjectName("liveHint")
+        self.live_hint.setWordWrap(True)
+
         status_box.addWidget(status_title)
         status_box.addWidget(self.live_status)
+        status_box.addWidget(self.live_hint)
 
         controls = QHBoxLayout()
         self.calibrate_button = QPushButton("C  •  CALIBRAR")
         self.reset_button = QPushButton("R  •  REINICIAR")
         self.quit_button = QPushButton("Q  •  SALIR")
+
         controls.addWidget(self.calibrate_button)
         controls.addWidget(self.reset_button)
         controls.addWidget(self.quit_button)
@@ -181,6 +198,7 @@ class MocapGUI(QWidget):
         metrics.setVerticalSpacing(4)
 
         names = [
+            "Model",
             "Camera FPS",
             "YOLO FPS",
             "Recording FPS",
@@ -195,6 +213,7 @@ class MocapGUI(QWidget):
         ]
 
         self.labels = {}
+
         for row, name in enumerate(names):
             title = QLabel(name)
             value = QLabel("-")
@@ -215,12 +234,13 @@ class MocapGUI(QWidget):
     def _start_preview_timer(self):
         self.preview_timer = QTimer(self)
         self.preview_timer.timeout.connect(self._refresh_live_preview)
-        self.preview_timer.start(100)
+        self.preview_timer.start(50)
 
     def _group(self, title, widget):
         group = QGroupBox(title)
         layout = QVBoxLayout(group)
         layout.setContentsMargins(7, 7, 7, 7)
+        layout.setSpacing(5)
         layout.addWidget(widget)
         return group
 
@@ -256,33 +276,45 @@ class MocapGUI(QWidget):
 
         if "ERROR" in text or "DESCONECT" in text:
             self.state_label.setStyleSheet(
-                "font-size:17pt;font-weight:800;padding:10px;border-radius:8px;"
+                "font-size:17pt;font-weight:800;padding:10px;border-radius:10px;"
                 "background:#3a171b;color:#ff9da5;"
             )
         elif "CALIBR" in text:
             self.state_label.setStyleSheet(
-                "font-size:17pt;font-weight:800;padding:10px;border-radius:8px;"
+                "font-size:17pt;font-weight:800;padding:10px;border-radius:10px;"
                 "background:#302718;color:#ffd58a;"
             )
         else:
             self.state_label.setStyleSheet(
-                "font-size:17pt;font-weight:800;padding:10px;border-radius:8px;"
+                "font-size:17pt;font-weight:800;padding:10px;border-radius:10px;"
                 "background:#143025;color:#8ff0b8;"
             )
 
     def update_metrics(self, metrics):
         metrics = metrics or {}
 
-        self.labels["Camera FPS"].setText(f"{metrics.get('camera_fps', 0):.1f}")
-        self.labels["YOLO FPS"].setText(f"{metrics.get('yolo_fps', 0):.1f}")
+        self.labels["Model"].setText(str(metrics.get("model_name", "-")))
+        self.labels["Camera FPS"].setText(
+            f"{metrics.get('camera_fps', 0):.1f}"
+        )
+        self.labels["YOLO FPS"].setText(
+            f"{metrics.get('yolo_fps', 0):.1f}"
+        )
         self.labels["Recording FPS"].setText("10.0")
-        self.labels["Recorded Frames"].setText(str(metrics.get("recorded_frames", 0)))
-        self.labels["Visibility"].setText(f"{metrics.get('visibility', 0) * 100:.1f}%")
-        self.labels["Body Scale"].setText(f"{metrics.get('body_scale', 0):.1f}")
+        self.labels["Recorded Frames"].setText(
+            str(metrics.get("recorded_frames", 0))
+        )
+        self.labels["Visibility"].setText(
+            f"{metrics.get('visibility', 0) * 100:.1f}%"
+        )
+        self.labels["Body Scale"].setText(
+            f"{metrics.get('body_scale', 0):.1f}px"
+        )
 
         center = metrics.get("body_center")
         self.labels["Body Center"].setText(
-            f"{center[0]:.1f}, {center[1]:.1f}" if center else "-"
+            f"{center[0]:.1f}, {center[1]:.1f}"
+            if center else "-"
         )
 
         for key, label in [
@@ -299,30 +331,41 @@ class MocapGUI(QWidget):
         if metrics.get("live_connected"):
             self.live_status.setText(
                 "● BLENDER CONECTADO\n"
-                "El panel 03 muestra el render del .blend temporal.\n"
-                "El archivo original permanece intacto."
+                "LIVE activo sobre una copia temporal del .blend.\n"
+                "Bone permanece estático; hip mueve Genesis."
             )
         else:
             self.live_status.setText(
                 "○ BLENDER DESCONECTADO\n"
-                + str(metrics.get("live_error", "Iniciando Blender..."))
+                + str(
+                    metrics.get(
+                        "live_error",
+                        "Iniciando Blender...",
+                    )
+                )
             )
 
     def _refresh_live_preview(self):
         path = str(LIVE_PREVIEW_IMAGE)
+
         if not os.path.exists(path):
             return
 
         try:
             image = cv2.imread(path, cv2.IMREAD_COLOR)
+
             if image is None:
                 return
+
             self.last_live_preview = image
             self._show_image(self.live_label, image)
+
         except Exception:
-            # El archivo puede estar siendo reemplazado por Blender.
             if self.last_live_preview is not None:
-                self._show_image(self.live_label, self.last_live_preview)
+                self._show_image(
+                    self.live_label,
+                    self.last_live_preview,
+                )
 
     def _show_image(self, label, frame):
         if frame is None:
@@ -330,6 +373,7 @@ class MocapGUI(QWidget):
 
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = image.shape
+
         qimage = QImage(
             image.data,
             w,
@@ -343,6 +387,7 @@ class MocapGUI(QWidget):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
+
         label.setPixmap(pixmap)
 
     def _draw_skeleton(self, keypoints):
