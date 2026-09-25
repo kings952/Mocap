@@ -1,10 +1,6 @@
 from pathlib import Path
 
 
-# ============================================================
-# PATHS
-# ============================================================
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MODEL_PATH = PROJECT_ROOT / "models" / "yolo11n-pose.pt"
@@ -25,74 +21,34 @@ SOURCE_BLEND = Path(
 )
 
 BLENDER_GENERATOR = PROJECT_ROOT / "blender" / "generate_animation.py"
-BLENDER_PREVIEW_EXPORTER = PROJECT_ROOT / "blender" / "export_preview.py"
-
-
-# ============================================================
-# CAMERA
-# ============================================================
+BLENDER_LIVE_SCRIPT = PROJECT_ROOT / "blender" / "live_preview.py"
 
 CAMERA_INDEX = 0
-
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
-
 YOLO_IMAGE_SIZE = 640
 
-
-# ============================================================
-# CAPTURE
-# ============================================================
-
 RECORDING_FPS = 10.0
-
 SAMPLE_INTERVAL = 1.0 / RECORDING_FPS
 
-
-# ============================================================
-# SMOOTHING
-# ============================================================
-
 SMOOTHING_ALPHA = 0.30
-
 CONFIDENCE_THRESHOLD = 0.35
 
-
-# ============================================================
-# CALIBRATION
-# ============================================================
-
 CALIBRATION_FRAMES = 20
-
 CALIBRATION_MIN_CONFIDENCE = 0.45
 
-
-# ============================================================
-# KEYFRAME REDUCTION
-# ============================================================
-
-# Diferencia mínima para crear un nuevo keyframe.
 KEYFRAME_TOLERANCE = 0.4
-
-# Siempre conservar primer y último frame.
 ALWAYS_KEEP_FIRST = True
 ALWAYS_KEEP_LAST = True
 
-
-# ============================================================
-# PREVIEW
-# ============================================================
-
 PREVIEW_FILE = RECORDINGS_DIR / "preview.glb"
-
 PREVIEW_FPS = 10.0
 
-
-# ============================================================
-# OUTPUT
-# ============================================================
-
 OUTPUT_EXTENSION = ".blend"
+
+LIVE_HOST = "127.0.0.1"
+LIVE_PORT = 8765
+LIVE_SCALE = 1.0
 
 
 def ensure_directories():
