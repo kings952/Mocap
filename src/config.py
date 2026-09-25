@@ -22,6 +22,7 @@ SOURCE_BLEND = Path(
 
 BLENDER_GENERATOR = PROJECT_ROOT / "blender" / "generate_animation.py"
 BLENDER_LIVE_SCRIPT = PROJECT_ROOT / "blender" / "live_preview.py"
+LIVE_TEMP_BLEND = RECORDINGS_DIR / "_live_preview.blend"
 
 CAMERA_INDEX = 0
 CAMERA_WIDTH = 1280
