@@ -41,6 +41,7 @@ class MocapWorker(QObject):
         self.yolo_fps = 0.0
         self.frames_counter = 0
         self.live_frame_id = 0
+        self.last_live_send = 0.0
 
     def run(self):
         try:
@@ -52,6 +53,7 @@ class MocapWorker(QObject):
 
             while self.running:
                 frame = self.camera.read()
+
                 if frame is None:
                     continue
 
@@ -61,7 +63,10 @@ class MocapWorker(QObject):
 
                 if delta > 0:
                     fps = 1.0 / delta
-                    self.camera_fps = self.camera_fps * 0.9 + fps * 0.1
+                    self.camera_fps = (
+                        self.camera_fps * 0.85
+                        + fps * 0.15
+                    )
 
                 start = time.perf_counter()
                 keypoints = self.detector.detect(frame)
@@ -69,13 +74,18 @@ class MocapWorker(QObject):
 
                 if inference_time > 0:
                     fps = 1.0 / inference_time
-                    self.yolo_fps = self.yolo_fps * 0.9 + fps * 0.1
+                    self.yolo_fps = (
+                        self.yolo_fps * 0.85
+                        + fps * 0.15
+                    )
 
                 if keypoints:
                     keypoints = self.smoother.update(keypoints)
 
                 if self.calibration.active:
-                    done = self.calibration.process(keypoints or {})
+                    done = self.calibration.process(
+                        keypoints or {}
+                    )
 
                     display = draw_calibration_overlay(
                         frame,
@@ -95,39 +105,65 @@ class MocapWorker(QObject):
                                 f"{self.calibration.required_frames}"
                             )
                         ),
-                        "calibration_progress": self.calibration.progress(),
-                        "calibration_score": self.calibration.last_score,
-                        "calibration_reason": self.calibration.last_reason,
+                        "calibration_progress": (
+                            self.calibration.progress()
+                        ),
+                        "calibration_score": (
+                            self.calibration.last_score
+                        ),
+                        "calibration_reason": (
+                            self.calibration.last_reason
+                        ),
                         "live_connected": self.live.connected,
                         "live_error": self.live.last_error,
                         "model_name": self.detector.model_name,
                     })
 
-                    self.frame_ready.emit(display, keypoints, metrics)
+                    self.frame_ready.emit(
+                        display,
+                        keypoints,
+                        metrics,
+                    )
 
                     if done:
                         self.recording = True
                         self.sampler.reset()
                         self.recorder.reset()
 
-                    if self.calibration.calibration and keypoints:
-                        self._send_live(keypoints, now)
+                    if (
+                        self.calibration.calibration
+                        and keypoints
+                    ):
+                        self._send_live(
+                            keypoints,
+                            now,
+                        )
 
                     continue
 
                 if keypoints:
                     if self.recording:
                         sample = self.sampler.update()
+
                         if sample:
                             packet = build_packet(
                                 keypoints,
                                 sample["frame_id"],
                                 sample["time"],
                             )
-                            self.recorder.add(packet)
-                            self.frames_counter = len(self.recorder.frames)
 
-                    self._send_live(keypoints, now)
+                            if self.recorder.add_if_changed(
+                                packet
+                            ):
+                                self.frames_counter = len(
+                                    self.recorder.frames
+                                )
+
+                    # LIVE no espera al sampler de 10 FPS.
+                    self._send_live(
+                        keypoints,
+                        now,
+                    )
                     state = "LIVE"
                 else:
                     state = "NO PERSON"
@@ -144,7 +180,11 @@ class MocapWorker(QObject):
                     ),
                 })
 
-                self.frame_ready.emit(frame, keypoints, metrics)
+                self.frame_ready.emit(
+                    frame,
+                    keypoints,
+                    metrics,
+                )
 
         except Exception as exc:
             self.error.emit(str(exc))
@@ -152,6 +192,7 @@ class MocapWorker(QObject):
         finally:
             if self.camera:
                 self.camera.release()
+
             self.live.stop()
             self.finished.emit()
 
@@ -201,6 +242,7 @@ class MocapWorker(QObject):
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         path = RECORDINGS_DIR / f"mocap_{timestamp}.json"
         self.recorder.save(path)
+        self.frames_counter = len(self.recorder.frames)
         return path
 
 
@@ -225,7 +267,9 @@ class MocapApplication:
 
     def _frame(self, frame, keypoints, metrics):
         self.gui.set_camera(frame, keypoints)
-        self.gui.set_state(metrics.get("state", "IDLE"))
+        self.gui.set_state(
+            metrics.get("state", "IDLE")
+        )
         self.gui.update_metrics(metrics)
 
     def _error(self, message):

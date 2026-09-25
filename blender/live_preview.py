@@ -39,8 +39,13 @@ _preview_camera = None
 _preview_center = None
 _preview_scale = None
 
+# Bounds del modelo se calculan una vez. Antes se calculaban por cada target
+# de cada paquete, lo cual hacia que el LIVE gastara mucho tiempo en Blender.
+_model_center = None
+_model_size = None
+
 _last_render_time = 0.0
-_RENDER_INTERVAL = 1.0 / 20.0
+_RENDER_INTERVAL = 1.0 / 30.0
 
 
 def parse_args():
@@ -61,6 +66,8 @@ def parse_args():
 
 
 def enqueue(packet):
+    # Solo importa el ultimo paquete. Nunca dejamos que Blender procese
+    # poses viejas si el detector va mas rapido que el render.
     with _lock:
         _queue.clear()
         _queue.append(packet)
@@ -69,19 +76,34 @@ def enqueue(packet):
 def receiver():
     global _running
 
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server = socket.socket(
+        socket.AF_INET,
+        socket.SOCK_STREAM,
+    )
+    server.setsockopt(
+        socket.SOL_SOCKET,
+        socket.SO_REUSEADDR,
+        1,
+    )
     server.bind((HOST, PORT))
     server.listen(1)
     server.settimeout(0.5)
 
-    print(f"[LIVE] Socket escuchando en {HOST}:{PORT}", flush=True)
+    print(
+        f"[LIVE] Socket escuchando en {HOST}:{PORT}",
+        flush=True,
+    )
 
     while _running:
         try:
             conn, address = server.accept()
-            conn.settimeout(0.5)
-            print(f"[LIVE] Cliente conectado: {address}", flush=True)
+            conn.settimeout(0.25)
+
+            print(
+                f"[LIVE] Cliente conectado: {address}",
+                flush=True,
+            )
+
             buffer = b""
 
             while _running:
@@ -102,9 +124,16 @@ def receiver():
                         continue
 
                     try:
-                        enqueue(json.loads(raw.decode("utf-8")))
+                        enqueue(
+                            json.loads(
+                                raw.decode("utf-8")
+                            )
+                        )
                     except Exception as exc:
-                        print(f"[LIVE] JSON invalido: {exc}", flush=True)
+                        print(
+                            f"[LIVE] JSON invalido: {exc}",
+                            flush=True,
+                        )
 
             try:
                 conn.close()
@@ -114,8 +143,11 @@ def receiver():
         except socket.timeout:
             continue
         except Exception as exc:
-            print(f"[LIVE] Socket: {exc}", flush=True)
-            time.sleep(0.2)
+            print(
+                f"[LIVE] Socket: {exc}",
+                flush=True,
+            )
+            time.sleep(0.1)
 
     try:
         server.close()
@@ -135,10 +167,14 @@ def resolve_pose_bone(armature, logical_name):
 
     for candidate in candidates:
         bone = armature.pose.bones.get(candidate)
+
         if bone is not None:
             return bone
 
-    wanted = {normalize_name(candidate) for candidate in candidates}
+    wanted = {
+        normalize_name(candidate)
+        for candidate in candidates
+    }
 
     for bone in armature.pose.bones:
         if normalize_name(bone.name) in wanted:
@@ -169,13 +205,18 @@ def get_pose_matrix_in_other_space(mat, pose_bone):
     if pose_bone.parent:
         par_mat = pose_bone.parent.matrix.copy()
         par_inv = par_mat.inverted()
-        par_rest = pose_bone.parent.bone.matrix_local.copy()
+        par_rest = (
+            pose_bone.parent.bone.matrix_local.copy()
+        )
     else:
         par_mat = Matrix()
         par_inv = Matrix()
         par_rest = Matrix()
 
-    return rest_inv @ (par_rest @ (par_inv @ mat))
+    return (
+        rest_inv
+        @ (par_rest @ (par_inv @ mat))
+    )
 
 
 def set_pose_translation(pose_bone, mat):
@@ -192,7 +233,10 @@ def set_pose_translation(pose_bone, mat):
         else Matrix()
     )
 
-    q = (par_rest.inverted() @ rest).to_quaternion()
+    q = (
+        par_rest.inverted() @ rest
+    ).to_quaternion()
+
     pose_bone.location = q @ loc
 
 
@@ -216,11 +260,17 @@ def geometry_bounds(armature):
         if obj.type != "MESH" or obj.hide_render:
             continue
 
-        related = obj in armature_children or obj.parent == armature
+        related = (
+            obj in armature_children
+            or obj.parent == armature
+        )
 
         if not related:
             for modifier in obj.modifiers:
-                if modifier.type == "ARMATURE" and modifier.object == armature:
+                if (
+                    modifier.type == "ARMATURE"
+                    and modifier.object == armature
+                ):
                     related = True
                     break
 
@@ -228,12 +278,18 @@ def geometry_bounds(armature):
             continue
 
         for corner in obj.bound_box:
-            points.append(obj.matrix_world @ Vector(corner))
+            points.append(
+                obj.matrix_world @ Vector(corner)
+            )
 
     if not points:
         for bone in armature.pose.bones:
-            points.append(armature.matrix_world @ bone.head)
-            points.append(armature.matrix_world @ bone.tail)
+            points.append(
+                armature.matrix_world @ bone.head
+            )
+            points.append(
+                armature.matrix_world @ bone.tail
+            )
 
     if not points:
         return (
@@ -253,7 +309,10 @@ def geometry_bounds(armature):
         max(p.z for p in points),
     ))
 
-    return (min_v + max_v) * 0.5, max_v - min_v
+    return (
+        (min_v + max_v) * 0.5,
+        max_v - min_v,
+    )
 
 
 def clamp_delta_to_model(delta, model_size, ratio):
@@ -286,27 +345,41 @@ def apply_target(armature, pose_bone, target):
     if not position or not reference:
         return False
 
-    delta = Vector(position) - Vector(reference)
+    delta = (
+        Vector(position)
+        - Vector(reference)
+    )
 
-    # A .blend can be imported at centimeters, meters, or an arbitrary scale.
-    # Never allow a mocap packet to move a control farther than a percentage of
-    # the real model size.
-    _, model_size = geometry_bounds(armature)
-
-    logical_gain = float(target.get("gain", 1.0))
-    logical_gain = max(0.0, min(1.0, logical_gain))
+    logical_gain = float(
+        target.get("gain", 1.0)
+    )
+    logical_gain = max(
+        0.0,
+        min(1.0, logical_gain),
+    )
     delta *= logical_gain
 
-    if normalize_name(pose_bone.name) == "hip":
-        delta = clamp_delta_to_model(delta, model_size, 0.20)
-    elif "pole" in normalize_name(pose_bone.name):
-        delta = clamp_delta_to_model(delta, model_size, 0.08)
-    elif "foot_ik" in normalize_name(pose_bone.name) or "hand_ik" in normalize_name(
-        pose_bone.name
-    ):
-        delta = clamp_delta_to_model(delta, model_size, 0.22)
-    else:
-        delta = clamp_delta_to_model(delta, model_size, 0.18)
+    # Bounds cacheados: no hacemos geometria_bounds() por cada hueso.
+    if _model_size is not None:
+        name = normalize_name(pose_bone.name)
+
+        if name == "hip":
+            ratio = 0.25
+        elif "pole" in name:
+            ratio = 0.12
+        elif (
+            "foot_ik" in name
+            or "hand_ik" in name
+        ):
+            ratio = 0.35
+        else:
+            ratio = 0.25
+
+        delta = clamp_delta_to_model(
+            delta,
+            _model_size,
+            ratio,
+        )
 
     initial = _initial_visual_translation.get(
         pose_bone.name,
@@ -314,36 +387,56 @@ def apply_target(armature, pose_bone, target):
     )
 
     base_matrix = pose_bone.matrix.copy()
-    base_matrix.translation = initial + delta
+    base_matrix.translation = (
+        initial + delta
+    )
 
     local_matrix = get_pose_matrix_in_other_space(
         base_matrix,
         pose_bone,
     )
 
-    set_pose_translation(pose_bone, local_matrix)
+    set_pose_translation(
+        pose_bone,
+        local_matrix,
+    )
+
     return True
 
 
 def capture_initial_pose(armature):
+    global _model_center, _model_size
+
     _initial_visual_translation.clear()
     _static_matrix_basis.clear()
 
     bpy.context.view_layer.update()
 
     for logical_name in CONTROL_NAMES:
-        bone = resolve_pose_bone(armature, logical_name)
+        bone = resolve_pose_bone(
+            armature,
+            logical_name,
+        )
 
         if bone is not None:
-            _initial_visual_translation[bone.name] = (
-                bone.matrix.translation.copy()
-            )
+            _initial_visual_translation[
+                bone.name
+            ] = bone.matrix.translation.copy()
 
     for static_name in STATIC_BONE_NAMES:
-        bone = resolve_static_bone(armature, static_name)
+        bone = resolve_static_bone(
+            armature,
+            static_name,
+        )
 
         if bone is not None:
-            _static_matrix_basis[bone.name] = bone.matrix_basis.copy()
+            _static_matrix_basis[
+                bone.name
+            ] = bone.matrix_basis.copy()
+
+    _model_center, _model_size = geometry_bounds(
+        armature
+    )
 
     print(
         f"[LIVE] Pose inicial: "
@@ -352,13 +445,24 @@ def capture_initial_pose(armature):
         flush=True,
     )
 
+    print(
+        f"[LIVE] Escala modelo: "
+        f"{tuple(round(v, 4) for v in _model_size)}",
+        flush=True,
+    )
+
 
 def restore_static_bones(armature):
     for name, matrix_basis in _static_matrix_basis.items():
-        bone = armature.pose.bones.get(name)
+        bone = resolve_static_bone(
+            armature,
+            name,
+        )
 
         if bone is not None:
-            bone.matrix_basis = matrix_basis.copy()
+            bone.matrix_basis = (
+                matrix_basis.copy()
+            )
 
 
 def apply_packet(armature, packet):
@@ -369,46 +473,77 @@ def apply_packet(armature, packet):
         if normalize_name(logical_name) == "bone":
             continue
 
-        bone = resolve_pose_bone(armature, logical_name)
+        bone = resolve_pose_bone(
+            armature,
+            logical_name,
+        )
 
         if bone is None:
             continue
 
-        if apply_target(armature, bone, target):
+        if apply_target(
+            armature,
+            bone,
+            target,
+        ):
             applied += 1
 
     bpy.context.view_layer.update()
-
     restore_static_bones(armature)
-
     bpy.context.view_layer.update()
 
     return applied
 
 
 def look_at(obj, target):
-    direction = Vector(target) - obj.location
+    direction = (
+        Vector(target) - obj.location
+    )
 
     if direction.length > 0.0001:
-        obj.rotation_euler = direction.to_track_quat(
-            "-Z",
-            "Y",
-        ).to_euler()
+        obj.rotation_euler = (
+            direction.to_track_quat(
+                "-Z",
+                "Y",
+            ).to_euler()
+        )
 
 
 def update_preview_camera(armature, force=False):
-    global _preview_camera, _preview_center, _preview_scale
+    global _preview_camera
+    global _preview_center
+    global _preview_scale
 
     scene = bpy.context.scene
-    center, size = geometry_bounds(armature)
 
-    width = max(float(size.x), 0.0001)
-    height = max(float(size.z), 0.0001)
-    depth = max(float(size.y), 0.0001)
+    # El tamaño se calculo al arrancar y no en cada frame.
+    if _model_center is None or _model_size is None:
+        center, size = geometry_bounds(
+            armature
+        )
+    else:
+        center = _model_center
+        size = _model_size
 
-    aspect = scene.render.resolution_x / max(
-        scene.render.resolution_y,
-        1,
+    width = max(
+        float(size.x),
+        0.0001,
+    )
+    height = max(
+        float(size.z),
+        0.0001,
+    )
+    depth = max(
+        float(size.y),
+        0.0001,
+    )
+
+    aspect = (
+        scene.render.resolution_x
+        / max(
+            scene.render.resolution_y,
+            1,
+        )
     )
 
     required_vertical = max(
@@ -418,20 +553,27 @@ def update_preview_camera(armature, force=False):
 
     required_vertical *= 1.18
 
-    if _preview_center is None or force:
+    if (
+        _preview_center is None
+        or force
+    ):
         _preview_center = center.copy()
     else:
         _preview_center = _preview_center.lerp(
             center,
-            0.15,
+            0.10,
         )
 
-    if _preview_scale is None or force:
+    if (
+        _preview_scale is None
+        or force
+    ):
         _preview_scale = required_vertical
     else:
+        # Camera casi fija: evita que el modelo haga zoom atrasado.
         _preview_scale = (
-            _preview_scale * 0.85
-            + required_vertical * 0.15
+            _preview_scale * 0.95
+            + required_vertical * 0.05
         )
 
     camera = _preview_camera
@@ -446,7 +588,9 @@ def update_preview_camera(armature, force=False):
             camera_data,
         )
 
-        scene.collection.objects.link(camera)
+        scene.collection.objects.link(
+            camera
+        )
         _preview_camera = camera
 
     camera.data.type = "ORTHO"
@@ -462,8 +606,9 @@ def update_preview_camera(armature, force=False):
         0.1,
     ) * 3.0
 
-    camera.location = _preview_center + Vector(
-        (0.0, -distance, 0.0)
+    camera.location = (
+        _preview_center
+        + Vector((0.0, -distance, 0.0))
     )
 
     camera.data.clip_start = max(
@@ -476,7 +621,11 @@ def update_preview_camera(armature, force=False):
         1.0,
     )
 
-    look_at(camera, _preview_center)
+    look_at(
+        camera,
+        _preview_center,
+    )
+
     scene.camera = camera
 
 
@@ -486,15 +635,17 @@ def setup_preview_scene(armature):
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
     scene.display.shading.color_type = "MATERIAL"
-    scene.display.shading.show_shadows = True
+    scene.display.shading.show_shadows = False
 
-    scene.render.resolution_x = 560
-    scene.render.resolution_y = 760
+    # Preview pequeño y rapido. El .blend original no se modifica.
+    scene.render.resolution_x = 420
+    scene.render.resolution_y = 570
     scene.render.resolution_percentage = 100
 
-    scene.render.image_settings.file_format = "PNG"
-    scene.render.image_settings.color_mode = "RGBA"
+    scene.render.image_settings.file_format = "JPEG"
+    scene.render.image_settings.color_mode = "RGB"
     scene.render.image_settings.color_depth = "8"
+    scene.render.image_settings.quality = 70
     scene.render.film_transparent = False
     scene.render.filepath = PREVIEW_PATH
 
@@ -509,7 +660,7 @@ def setup_preview_scene(armature):
     )
 
     print(
-        f"[LIVE] Preview estable: {PREVIEW_PATH}",
+        f"[LIVE] Preview rapido: {PREVIEW_PATH}",
         flush=True,
     )
 
@@ -524,7 +675,8 @@ def render_preview(armature, force_camera=False):
 
     if (
         not force_camera
-        and now - _last_render_time < _RENDER_INTERVAL
+        and now - _last_render_time
+        < _RENDER_INTERVAL
     ):
         return
 
@@ -540,7 +692,7 @@ def render_preview(armature, force_camera=False):
         bpy.ops.render.render(
             write_still=True,
         )
-        _last_render_time = now
+        _last_render_time = time.perf_counter()
     except Exception as exc:
         print(
             f"[LIVE] Error render preview: {exc}",
@@ -554,7 +706,9 @@ def setup_view():
             if area.type != "VIEW_3D":
                 continue
 
-            region_3d = area.spaces.active.region_3d
+            region_3d = (
+                area.spaces.active.region_3d
+            )
 
             if region_3d is None:
                 continue
@@ -588,11 +742,15 @@ def tick():
                     packet,
                 )
 
-                render_preview(armature)
+                render_preview(
+                    armature
+                )
 
                 print(
-                    f"[LIVE] frame={packet.get('frame_id')} "
-                    f"targets={len(packet.get('targets', {}))} "
+                    f"[LIVE] frame="
+                    f"{packet.get('frame_id')} "
+                    f"targets="
+                    f"{len(packet.get('targets', {}))} "
                     f"applied={applied}",
                     flush=True,
                 )
@@ -603,7 +761,8 @@ def tick():
                     flush=True,
                 )
 
-    return 0.02
+    # Poll muy frecuente; el render sigue limitado a 30 FPS.
+    return 0.005
 
 
 def main():
@@ -615,12 +774,19 @@ def main():
 
     if armature is None:
         raise RuntimeError(
-            f"No existe el armature '{ARMATURE_NAME}'."
+            f"No existe el armature "
+            f"'{ARMATURE_NAME}'."
         )
 
     setup_view()
-    capture_initial_pose(armature)
-    setup_preview_scene(armature)
+    capture_initial_pose(
+        armature
+    )
+
+    setup_preview_scene(
+        armature
+    )
+
     render_preview(
         armature,
         force_camera=True,
@@ -632,23 +798,29 @@ def main():
     )
     thread.start()
 
-    print("[LIVE] Modelo listo.", flush=True)
     print(
-        "[LIVE] Retarget normalizado + limite por escala del .blend.",
+        "[LIVE] Modelo listo.",
         flush=True,
     )
     print(
-        "[LIVE] hip mueve Genesis; Bone permanece estatico.",
+        "[LIVE] Pipeline low-latency: "
+        "solo se procesa el ultimo paquete.",
         flush=True,
     )
     print(
-        "[LIVE] Nombres IK toleran espacios al final.",
+        "[LIVE] hip mueve Genesis; "
+        "Bone permanece estatico.",
+        flush=True,
+    )
+    print(
+        "[LIVE] Nombres IK toleran "
+        "espacios al final.",
         flush=True,
     )
 
     bpy.app.timers.register(
         tick,
-        first_interval=0.02,
+        first_interval=0.005,
         persistent=True,
     )
 

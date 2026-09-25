@@ -9,12 +9,11 @@ from config import (
 
 class PoseSmoother:
     """
-    Suavizado temporal con:
-    - EMA suave.
-    - limite de salto por frame proporcional al ancho de hombros.
-    - retencion breve cuando YOLO pierde un keypoint.
+    Suavizado orientado a LIVE.
 
-    Esto evita que un solo frame malo mande un IK a una posicion absurda.
+    No intenta fabricar una pose perfecta; prioriza que el movimiento
+    llegue rapido al retarget. El limite de salto evita outliers extremos
+    pero permite cambios corporales normales.
     """
 
     def __init__(
@@ -43,7 +42,7 @@ class PoseSmoother:
             return self._copy(self.previous)
 
         shoulder_width = self._shoulder_width(keypoints)
-        max_jump = max(3.0, shoulder_width * self.max_jump_ratio)
+        max_jump = max(4.0, shoulder_width * self.max_jump_ratio)
 
         result = {}
         all_names = set(self.previous) | set(keypoints)
@@ -60,11 +59,13 @@ class PoseSmoother:
                 self.missing[name] = count
 
                 if count <= self.hold_frames:
-                    held_confidence = float(previous.get("confidence", 0.0)) * 0.85
                     result[name] = {
                         "x": float(previous["x"]),
                         "y": float(previous["y"]),
-                        "confidence": held_confidence,
+                        "confidence": (
+                            float(previous.get("confidence", 0.0))
+                            * 0.80
+                        ),
                     }
                 continue
 
@@ -87,12 +88,19 @@ class PoseSmoother:
                 limited_y = float(current["y"])
 
             alpha = self.alpha
+
             result[name] = {
-                "x": float(previous["x"]) * (1.0 - alpha)
-                + limited_x * alpha,
-                "y": float(previous["y"]) * (1.0 - alpha)
-                + limited_y * alpha,
-                "confidence": float(current.get("confidence", 0.0)),
+                "x": (
+                    float(previous["x"]) * (1.0 - alpha)
+                    + limited_x * alpha
+                ),
+                "y": (
+                    float(previous["y"]) * (1.0 - alpha)
+                    + limited_y * alpha
+                ),
+                "confidence": float(
+                    current.get("confidence", 0.0)
+                ),
             }
 
         self.previous = self._copy(result)
@@ -107,7 +115,10 @@ class PoseSmoother:
             return 120.0
 
         return max(
-            abs(float(left["x"]) - float(right["x"])),
+            math.hypot(
+                float(left["x"]) - float(right["x"]),
+                float(left["y"]) - float(right["y"]),
+            ),
             20.0,
         )
 
@@ -117,7 +128,9 @@ class PoseSmoother:
             name: {
                 "x": float(point["x"]),
                 "y": float(point["y"]),
-                "confidence": float(point.get("confidence", 0.0)),
+                "confidence": float(
+                    point.get("confidence", 0.0)
+                ),
             }
             for name, point in keypoints.items()
         }

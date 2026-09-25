@@ -234,7 +234,7 @@ class MocapGUI(QWidget):
     def _start_preview_timer(self):
         self.preview_timer = QTimer(self)
         self.preview_timer.timeout.connect(self._refresh_live_preview)
-        self.preview_timer.start(50)
+        self.preview_timer.start(33)
 
     def _group(self, title, widget):
         group = QGroupBox(title)
