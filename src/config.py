@@ -70,6 +70,14 @@ LIVE_HOST = "127.0.0.1"
 LIVE_PORT = 8765
 LIVE_SCALE = 1.0
 
+# El detector puede trabajar a la velocidad disponible, pero el pipeline
+# LIVE se entrega a Blender a una frecuencia estable para evitar sobrecarga.
+LIVE_FPS = 12.0
+LIVE_INTERVAL = 1.0 / LIVE_FPS
+
+# Renderizar el modelo no necesita la misma frecuencia que la captura.
+LIVE_RENDER_FPS = 15.0
+
 
 def ensure_directories():
     CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)

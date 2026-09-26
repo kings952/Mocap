@@ -41,7 +41,6 @@ class MocapWorker(QObject):
         self.yolo_fps = 0.0
         self.frames_counter = 0
         self.live_frame_id = 0
-        self.last_live_send = 0.0
 
     def run(self):
         try:
@@ -200,13 +199,15 @@ class MocapWorker(QObject):
         if not self.calibration.calibration:
             return
 
-        self.live.send(
+        sent = self.live.send(
             keypoints,
             self.calibration.calibration,
             self.live_frame_id,
             timestamp,
         )
-        self.live_frame_id += 1
+
+        if sent:
+            self.live_frame_id += 1
 
     def _metrics(self, keypoints):
         metrics = {}

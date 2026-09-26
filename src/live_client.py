@@ -12,6 +12,7 @@ from config import (
     LIVE_PORT,
     LIVE_TEMP_BLEND,
     LIVE_PREVIEW_IMAGE,
+    LIVE_INTERVAL,
 )
 from retarget import build_live_targets
 
@@ -24,6 +25,7 @@ class LivePreviewClient:
         self.last_error = ""
         self.last_send = 0.0
         self.sent_frames = 0
+        self.dropped_frames = 0
         self.last_target_count = 0
 
     def start(self):
@@ -93,7 +95,19 @@ class LivePreviewClient:
 
     def send(self, keypoints, calibration, frame_id, timestamp):
         if not self.connected:
-            return
+            return False
+
+        now = time.perf_counter()
+
+        # El tracking sigue procesando la captura, pero Blender recibe solo
+        # una frecuencia estable. Esto evita llenar el pipeline de trabajo
+        # cuando YOLO entrega frames más rápido que el preview.
+        if (
+            self.last_send > 0.0
+            and now - self.last_send < LIVE_INTERVAL
+        ):
+            self.dropped_frames += 1
+            return False
 
         targets = build_live_targets(keypoints, calibration)
         packet = {
@@ -106,13 +120,15 @@ class LivePreviewClient:
         try:
             data = (json.dumps(packet, separators=(",", ":")) + "\n").encode("utf-8")
             self.sock.sendall(data)
-            self.last_send = time.perf_counter()
+            self.last_send = now
             self.sent_frames += 1
             self.last_target_count = len(targets)
+            return True
         except OSError as exc:
             self.connected = False
             self.last_error = f"Socket live cerrado: {exc}"
             self._close_socket()
+            return False
 
     def stop(self):
         self.connected = False

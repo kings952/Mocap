@@ -8,6 +8,8 @@ import time
 
 from mathutils import Matrix, Vector
 
+from pathlib import Path
+
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -45,7 +47,11 @@ _model_center = None
 _model_size = None
 
 _last_render_time = 0.0
-_RENDER_INTERVAL = 1.0 / 30.0
+_RENDER_INTERVAL = 1.0 / 15.0
+
+# Estadisticas ligeras: no escribimos una linea de consola por cada paquete.
+_processed_packets = 0
+_last_stats_time = 0.0
 
 
 def parse_args():
@@ -116,6 +122,16 @@ def receiver():
                     break
 
                 buffer += chunk
+
+                # Nunca permitimos que una conexion rota o un paquete
+                # incompleto haga crecer el buffer indefinidamente.
+                if len(buffer) > 2 * 1024 * 1024:
+                    print(
+                        "[LIVE] Buffer de socket excedido; reiniciando conexion.",
+                        flush=True,
+                    )
+                    buffer = b""
+                    break
 
                 while b"\n" in buffer:
                     raw, buffer = buffer.split(b"\n", 1)
@@ -686,12 +702,25 @@ def render_preview(armature, force_camera=False):
     )
 
     scene = bpy.context.scene
-    scene.render.filepath = PREVIEW_PATH
+    output_path = Path(PREVIEW_PATH)
+    temp_path = output_path.with_name(
+        output_path.stem + "_tmp" + output_path.suffix
+    )
+
+    scene.render.filepath = str(temp_path)
 
     try:
         bpy.ops.render.render(
             write_still=True,
         )
+
+        # Publicacion atomica: la GUI solo ve imagenes completas.
+        if temp_path.exists():
+            os.replace(
+                str(temp_path),
+                str(output_path),
+            )
+
         _last_render_time = time.perf_counter()
     except Exception as exc:
         print(
@@ -721,6 +750,9 @@ def setup_view():
 
 
 def tick():
+    global _processed_packets
+    global _last_stats_time
+
     if not _running:
         return None
 
@@ -746,14 +778,17 @@ def tick():
                     armature
                 )
 
-                print(
-                    f"[LIVE] frame="
-                    f"{packet.get('frame_id')} "
-                    f"targets="
-                    f"{len(packet.get('targets', {}))} "
-                    f"applied={applied}",
-                    flush=True,
-                )
+                _processed_packets += 1
+
+                now = time.perf_counter()
+                if now - _last_stats_time >= 2.0:
+                    print(
+                        f"[LIVE] procesados={_processed_packets} "
+                        f"ultimo_frame={packet.get('frame_id')} "
+                        f"targets={len(packet.get('targets', {}))}",
+                        flush=True,
+                    )
+                    _last_stats_time = now
 
             except Exception as exc:
                 print(
@@ -761,8 +796,8 @@ def tick():
                     flush=True,
                 )
 
-    # Poll muy frecuente; el render sigue limitado a 30 FPS.
-    return 0.005
+    # Poll frecuente, pero sin una tormenta de callbacks. El render tiene su propio limite.
+    return 0.01
 
 
 def main():
