@@ -115,6 +115,7 @@ class MocapWorker(QObject):
                         ),
                         "live_connected": self.live.connected,
                         "live_error": self.live.last_error,
+                        "live_preview": self.live.preview,
                         "model_name": self.detector.model_name,
                     })
 
@@ -172,6 +173,7 @@ class MocapWorker(QObject):
                     "state": state,
                     "live_connected": self.live.connected,
                     "live_error": self.live.last_error,
+                    "live_preview": self.live.preview,
                     "model_name": (
                         self.detector.model_name
                         if self.detector

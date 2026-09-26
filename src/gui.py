@@ -1,9 +1,7 @@
-import os
-
 import cv2
 import numpy as np
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget,
@@ -16,7 +14,6 @@ from PySide6.QtWidgets import (
     QFrame,
 )
 
-from config import LIVE_PREVIEW_IMAGE
 from skeleton import SKELETON_CONNECTIONS
 
 
@@ -33,7 +30,6 @@ class MocapGUI(QWidget):
         self.last_live_preview = None
 
         self._build_ui()
-        self._start_preview_timer()
 
     def _build_ui(self):
         self.setStyleSheet(
@@ -123,7 +119,7 @@ class MocapGUI(QWidget):
         title.setObjectName("title")
 
         subtitle = QLabel(
-            "YOLO Pose + tracking  →  calibración normalizada  →  IK Blender"
+            "YOLO Pose + tracking  →  calibración neutra  →  preview local sin Blender"
         )
         subtitle.setObjectName("subtitle")
 
@@ -155,7 +151,7 @@ class MocapGUI(QWidget):
             2,
         )
 
-        live_group = self._group("03  MODELO BLENDER • LIVE", self.live_label)
+        live_group = self._group("03  AVATAR • LIVE", self.live_label)
         live_group.setMinimumWidth(440)
         content.addWidget(live_group, 4)
 
@@ -168,12 +164,12 @@ class MocapGUI(QWidget):
         status_title = QLabel("CONEXIÓN LIVE")
         status_title.setStyleSheet("font-weight:800;color:#91d8ff;")
 
-        self.live_status = QLabel("Preparando Blender...")
+        self.live_status = QLabel("Preparando preview local...")
         self.live_status.setObjectName("status")
         self.live_status.setWordWrap(True)
 
         self.live_hint = QLabel(
-            "El panel 03 es el modelo real del .blend temporal, no un esqueleto 2D."
+            "El panel 03 usa Python/OpenCV en memoria. Blender solo se usa después para generar el .blend final."
         )
         self.live_hint.setObjectName("liveHint")
         self.live_hint.setWordWrap(True)
@@ -230,11 +226,6 @@ class MocapGUI(QWidget):
         self.calibrate_button.clicked.connect(self._calibrate)
         self.reset_button.clicked.connect(self._reset)
         self.quit_button.clicked.connect(self.close)
-
-    def _start_preview_timer(self):
-        self.preview_timer = QTimer(self)
-        self.preview_timer.timeout.connect(self._refresh_live_preview)
-        self.preview_timer.start(33)
 
     def _group(self, title, widget):
         group = QGroupBox(title)
@@ -328,44 +319,30 @@ class MocapGUI(QWidget):
                 f"{value:.1f}°" if value is not None else "-"
             )
 
+        preview = metrics.get("live_preview")
+        if preview is not None:
+            self.last_live_preview = preview
+            self._show_image(
+                self.live_label,
+                preview,
+            )
+
         if metrics.get("live_connected"):
             self.live_status.setText(
-                "● BLENDER CONECTADO\n"
-                "LIVE activo sobre una copia temporal del .blend.\n"
-                "Bone permanece estático; hip mueve Genesis."
+                "● LIVE LOCAL CONECTADO\n"
+                "Preview en memoria con Python/OpenCV.\n"
+                "Blender no se ejecuta durante la captura."
             )
         else:
             self.live_status.setText(
-                "○ BLENDER DESCONECTADO\n"
+                "○ LIVE DESCONECTADO\n"
                 + str(
                     metrics.get(
                         "live_error",
-                        "Iniciando Blender...",
+                        "Iniciando preview local...",
                     )
                 )
             )
-
-    def _refresh_live_preview(self):
-        path = str(LIVE_PREVIEW_IMAGE)
-
-        if not os.path.exists(path):
-            return
-
-        try:
-            image = cv2.imread(path, cv2.IMREAD_COLOR)
-
-            if image is None:
-                return
-
-            self.last_live_preview = image
-            self._show_image(self.live_label, image)
-
-        except Exception:
-            if self.last_live_preview is not None:
-                self._show_image(
-                    self.live_label,
-                    self.last_live_preview,
-                )
 
     def _show_image(self, label, frame):
         if frame is None:
