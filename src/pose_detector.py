@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 from ultralytics import YOLO
 
 from config import (
@@ -20,7 +21,10 @@ class PoseDetector:
         self.model_name = MODEL_NAME
         self.tracking_ready = True
 
-        print(f"[YOLO] Modelo live: {MODEL_NAME}", flush=True)
+        print(
+            f"[YOLO] Modelo live: {MODEL_NAME}",
+            flush=True,
+        )
 
         try:
             self.model = YOLO(str(MODEL_PATH))
@@ -44,18 +48,28 @@ class PoseDetector:
             )
             self.model = YOLO(str(FALLBACK_MODEL_PATH))
 
-        # Warm-up una sola vez para que el primer movimiento no tenga un
-        # retraso enorme por inicializacion de PyTorch/Ultralytics.
+        # Warm-up real: source=None provoca el warning
+        # "'source' is missing" en Ultralytics.
         try:
+            dummy = np.zeros(
+                (
+                    YOLO_IMAGE_SIZE,
+                    YOLO_IMAGE_SIZE,
+                    3,
+                ),
+                dtype=np.uint8,
+            )
             self.model.predict(
-                source=None,
+                source=dummy,
                 imgsz=YOLO_IMAGE_SIZE,
                 conf=POSE_DETECTION_CONFIDENCE,
                 verbose=False,
             )
-        except Exception:
-            # Algunas versiones no aceptan source=None para warm-up.
-            pass
+        except Exception as exc:
+            print(
+                f"[YOLO] Warm-up omitido: {exc}",
+                flush=True,
+            )
 
     def detect(self, frame):
         try:
@@ -89,14 +103,21 @@ class PoseDetector:
 
         result = results[0]
 
-        if result.keypoints is None or len(result.keypoints.xy) == 0:
+        if (
+            result.keypoints is None
+            or len(result.keypoints.xy) == 0
+        ):
             return None
 
         index = self._best_person_index(result)
         points = result.keypoints.xy[index].cpu().numpy()
 
         if result.keypoints.conf is not None:
-            confidences = result.keypoints.conf[index].cpu().numpy()
+            confidences = (
+                result.keypoints.conf[index]
+                .cpu()
+                .numpy()
+            )
         else:
             confidences = [1.0] * len(points)
 
@@ -116,8 +137,15 @@ class PoseDetector:
 
     @staticmethod
     def _best_person_index(result):
-        if result.boxes is None or len(result.boxes.conf) == 0:
+        if (
+            result.boxes is None
+            or len(result.boxes.conf) == 0
+        ):
             return 0
 
-        confidences = result.boxes.conf.cpu().numpy()
+        confidences = (
+            result.boxes.conf
+            .cpu()
+            .numpy()
+        )
         return int(confidences.argmax())
