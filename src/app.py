@@ -12,6 +12,7 @@ from retarget import build_packet
 from gui import MocapGUI
 from calibration_ui import draw_calibration_overlay
 from live_client import LivePreviewClient
+from live_tracker import LiveTracker
 from config import (
     SMOOTHING_ALPHA,
     RECORDING_FPS,
@@ -35,6 +36,8 @@ class MocapWorker(QObject):
         self.camera = None
         self.detector = None
         self.live = LivePreviewClient()
+        self.live_tracker = LiveTracker()
+        self.live_started = False
         self.recording = False
         self.last_time = time.perf_counter()
         self.camera_fps = 0.0
@@ -46,9 +49,6 @@ class MocapWorker(QObject):
         try:
             self.camera = Camera()
             self.detector = PoseDetector()
-
-            if not self.live.start():
-                print(f"[LIVE] {self.live.last_error}")
 
             while self.running:
                 frame = self.camera.read()
@@ -130,14 +130,10 @@ class MocapWorker(QObject):
                         self.sampler.reset()
                         self.recorder.reset()
 
-                    if (
-                        self.calibration.calibration
-                        and keypoints
-                    ):
-                        self._send_live(
-                            keypoints,
-                            now,
-                        )
+                    if self.calibration.calibration and keypoints:
+                        if not self.live_started:
+                            self.live_started = self.live.start()
+                        self._send_live(keypoints, now)
 
                     continue
 
@@ -160,10 +156,7 @@ class MocapWorker(QObject):
                                 )
 
                     # LIVE no espera al sampler de 10 FPS.
-                    self._send_live(
-                        keypoints,
-                        now,
-                    )
+                    self._send_live(keypoints, now)
                     state = "LIVE"
                 else:
                     state = "NO PERSON"
@@ -195,14 +188,19 @@ class MocapWorker(QObject):
                 self.camera.release()
 
             self.live.stop()
+            self.live_started = False
             self.finished.emit()
 
     def _send_live(self, keypoints, timestamp):
         if not self.calibration.calibration:
             return
 
+        tracked = self.live_tracker.update(keypoints)
+        if not tracked:
+            return
+
         sent = self.live.send(
-            keypoints,
+            tracked,
             self.calibration.calibration,
             self.live_frame_id,
             timestamp,
@@ -229,6 +227,10 @@ class MocapWorker(QObject):
 
     def start_calibration(self):
         self.smoother.reset()
+        self.live_tracker.reset()
+        if self.live_started:
+            self.live.stop()
+            self.live_started = False
         self.calibration.start()
         self.recording = False
         self.recorder.reset()
@@ -265,8 +267,9 @@ class MocapApplication:
         self.gui.on_calibrate = self.worker.start_calibration
         self.gui.on_reset = self.worker.start_calibration
 
-        self.thread.start()
         self.gui.show()
+        self.gui.set_state("INICIANDO CAPTURA")
+        self.thread.start()
 
     def _frame(self, frame, keypoints, metrics):
         self.gui.set_camera(frame, keypoints)
@@ -278,6 +281,7 @@ class MocapApplication:
     def _error(self, message):
         print(f"[ERROR] {message}")
         self.gui.set_state("ERROR")
+        self.gui.live_status.setText("○ ERROR\n" + message)
 
     def close(self):
         self.worker.stop()

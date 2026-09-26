@@ -47,7 +47,7 @@ _model_center = None
 _model_size = None
 
 _last_render_time = 0.0
-_RENDER_INTERVAL = 1.0 / 15.0
+_RENDER_INTERVAL = 1.0 / 18.0
 
 # Estadisticas ligeras: no escribimos una linea de consola por cada paquete.
 _processed_packets = 0

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 
@@ -9,9 +10,10 @@ RECORDINGS_DIR = PROJECT_ROOT / "recordings"
 
 # Modelo pequeño para priorizar latencia en LIVE.
 # YOLO26n-pose tiene una latencia publicada muy inferior a YOLO26s-pose.
-MODEL_NAME = "yolo26n-pose.pt"
+MODEL_NAME = "yolo26s-pose.pt"
 MODEL_PATH = PROJECT_ROOT / "models" / MODEL_NAME
-FALLBACK_MODEL_PATH = PROJECT_ROOT / "models" / "yolo11n-pose.pt"
+FALLBACK_MODEL_NAME = "yolo26n-pose.pt"
+FALLBACK_MODEL_PATH = PROJECT_ROOT / "models" / FALLBACK_MODEL_NAME
 
 ARMATURE_MAPPING = CONFIG_DIR / "armature_mapping.json"
 RIG_REFERENCE = CONFIG_DIR / "rig_reference.json"
@@ -21,8 +23,11 @@ BLENDER_EXE = Path(
 )
 
 SOURCE_BLEND = Path(
-    r"D:\my blender\bases\Baseic_flutter.blend"
-)
+    os.environ.get(
+        "MOCAP_SOURCE_BLEND",
+        r"D:\my blender\bases\Baseic_flutter.blend",
+    )
+).expanduser()
 
 BLENDER_GENERATOR = PROJECT_ROOT / "blender" / "generate_animation.py"
 BLENDER_LIVE_SCRIPT = PROJECT_ROOT / "blender" / "live_preview.py"
@@ -38,6 +43,10 @@ CAMERA_HEIGHT = 540
 
 # Entrada de inferencia mas pequeña para el modo live.
 YOLO_IMAGE_SIZE = 512
+YOLO_DEVICE = "0"
+YOLO_HALF = True
+YOLO_MAX_DET = 1
+YOLO_TRACKER = "bytetrack.yaml"
 
 # La captura sigue siendo continua; 10 FPS solo limita el guardado.
 RECORDING_FPS = 10.0
@@ -47,6 +56,11 @@ SAMPLE_INTERVAL = 1.0 / RECORDING_FPS
 SMOOTHING_ALPHA = 0.55
 SMOOTHING_MAX_JUMP_RATIO = 0.35
 SMOOTHING_HOLD_FRAMES = 2
+
+LIVE_TRACK_ALPHA = 0.72
+LIVE_TRACK_HOLD_FRAMES = 3
+LIVE_TRACK_MAX_STEP_RATIO = 0.30
+LIVE_TRACK_CONFIDENCE = 0.30
 
 CONFIDENCE_THRESHOLD = 0.35
 POSE_DETECTION_CONFIDENCE = 0.25
@@ -77,7 +91,8 @@ LIVE_INTERVAL = 1.0 / LIVE_FPS
 
 # Conservado como referencia para configuraciones externas; el LIVE actual
 # no renderiza frames en Blender.
-LIVE_RENDER_FPS = LIVE_FPS
+LIVE_RENDER_FPS = 18.0
+LIVE_RENDER_INTERVAL = 1.0 / LIVE_RENDER_FPS
 
 
 def ensure_directories():

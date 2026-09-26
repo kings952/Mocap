@@ -119,7 +119,7 @@ class MocapGUI(QWidget):
         title.setObjectName("title")
 
         subtitle = QLabel(
-            "YOLO Pose + tracking  →  calibración neutra  →  preview local sin Blender"
+            "YOLO26s Pose + ByteTrack  →  calibración neutra  →  tracker temporal  →  .blend real"
         )
         subtitle.setObjectName("subtitle")
 
@@ -164,12 +164,12 @@ class MocapGUI(QWidget):
         status_title = QLabel("CONEXIÓN LIVE")
         status_title.setStyleSheet("font-weight:800;color:#91d8ff;")
 
-        self.live_status = QLabel("Preparando preview local...")
+        self.live_status = QLabel("Esperando calibración para iniciar el modelo real...")
         self.live_status.setObjectName("status")
         self.live_status.setWordWrap(True)
 
         self.live_hint = QLabel(
-            "El panel 03 usa Python/OpenCV en memoria. Blender solo se usa después para generar el .blend final."
+            "El panel 03 muestra el mismo .blend configurado en SOURCE_BLEND. Blender trabaja separado del detector."
         )
         self.live_hint.setObjectName("liveHint")
         self.live_hint.setWordWrap(True)
@@ -330,8 +330,8 @@ class MocapGUI(QWidget):
         if metrics.get("live_connected"):
             self.live_status.setText(
                 "● LIVE LOCAL CONECTADO\n"
-                "Preview en memoria con Python/OpenCV.\n"
-                "Blender no se ejecuta durante la captura."
+                "Preview del .blend real.\n"
+                "Blender trabaja en segundo plano; solo se procesa el último estado."
             )
         else:
             self.live_status.setText(
@@ -339,7 +339,7 @@ class MocapGUI(QWidget):
                 + str(
                     metrics.get(
                         "live_error",
-                        "Iniciando preview local...",
+                        "Esperando calibración...",
                     )
                 )
             )
