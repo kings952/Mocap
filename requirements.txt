@@ -1,6 +1,6 @@
-# Entorno soportado: CPython 3.12 x64 en Windows 10/11.
-# NumPy 1.26.4 requiere un wheel compatible; no permitir compilación desde código fuente.
-# Si pip no encuentra wheel, comprobar que .venv usa Python 3.12 x64.
+# Entorno soportado: CPython 3.10 x64 en Windows 10/11.
+# Esta base usa Python 3.10 porque es el intérprete compatible disponible
+# en la máquina de desarrollo con NumPy 1.26.4 + MediaPipe 0.10.21.
 --only-binary=numpy
 numpy==1.26.4
 scipy==1.15.2

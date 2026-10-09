@@ -1,61 +1,85 @@
 # MOCAP — Genesis + Blender 4.4
 
-Aplicación de captura de movimiento para detectar poses desde imagen, vídeo o cámara y, por etapas, transferirlas al rig Genesis de Blender 4.4.
+Aplicación de captura de movimiento para detectar poses desde imagen, vídeo o cámara y transferirlas por etapas al rig Genesis de Blender 4.4.
 
-## Base de desarrollo
+## Estado
 
-Esta base prioriza que el entorno sea reproducible antes de implementar la detección, la calibración, el filtrado, el retargeting y la interfaz. No se considera terminada ninguna etapa hasta que sus pruebas pasen.
+Este repositorio se está reconstruyendo desde una base limpia. El primer objetivo es tener un entorno reproducible y verificable antes de implementar detección, calibración, filtrado, retargeting, Blender y GUI.
 
-### Requisitos
+## Entorno de desarrollo
 
 - Windows 10/11 de 64 bits.
-- **Python 3.12.x de 64 bits** para la aplicación.
+- **Python 3.10.x de 64 bits**.
 - Blender 4.4.x instalado por separado.
 - Git.
-- Webcam para probar la captura en vivo.
+- Webcam para las pruebas de captura en vivo.
 
-**Importante sobre NumPy:** el error de instalación aparece normalmente al ejecutar pip con Python 3.13 o 3.14. NumPy 1.26.4 ofrece wheels para Python 3.9–3.12, pero no para 3.13/3.14. Esta base conserva NumPy 1.26.4 porque la combinación fijada con MediaPipe 0.10.21 está preparada para Python 3.12. No cambies la dependencia a NumPy 2.x sin validar primero la compatibilidad de MediaPipe y el resto del stack.
+### Por qué Python 3.10
 
-Comprueba qué versiones de Python están instaladas:
+La máquina de desarrollo dispone actualmente de Python 3.10 y 3.14, pero no de Python 3.12.
+
+La dependencia fijada **NumPy 1.26.4** no tiene wheel para Python 3.13/3.14. Por eso **no se debe crear este entorno con Python 3.14** ni cambiar NumPy a 2.x como solución rápida: MediaPipe y el resto del stack deben validarse juntos.
+
+Para esta base se usa Python 3.10, que permite instalar NumPy 1.26.4 mediante wheel y mantiene la combinación fijada con MediaPipe 0.10.21.
+
+Comprueba tus intérpretes:
 
 ```powershell
 py -0p
 ```
 
-Si no aparece Python 3.12 de 64 bits, instálalo antes de continuar.
+Debe aparecer Python 3.10.
 
-## Preparar el entorno en PowerShell
+## Crear el entorno desde cero
 
-Ejecuta desde la carpeta raíz del repositorio:
+Desde:
+
+```text
+D:\Mios\mocap_live_blender
+```
+
+Ejecuta:
 
 ```powershell
-py -3.12 -m venv .venv
+py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python --version
 python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
 ```
 
-La versión mostrada por `python --version` debe comenzar con `Python 3.12.`. Si PowerShell bloquea la activación, puedes usar directamente `.\.venv\Scripts\python.exe` en los comandos siguientes sin activar el entorno.
+La versión debe mostrar:
 
-## Validar instalación y pruebas
+```text
+Python 3.10.x
+```
+
+Si PowerShell bloquea la activación, usa directamente:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+```
+
+## Validar la base
 
 ```powershell
 python scripts\smoke_test.py
 python -m pytest -q
 ```
 
-La prueba de entorno comprueba versiones e importaciones; no abre la webcam ni necesita Blender. La suite inicial valida la configuración base. Son pruebas de infraestructura, no una afirmación de que el sistema MOCAP completo ya esté implementado.
+El smoke test verifica Python, NumPy, SciPy, OpenCV, MediaPipe y PySide6. No abre la webcam ni necesita Blender.
 
 ## Estructura
 
 ```text
-src/mocap/          Código de la aplicación
-scripts/            Diagnósticos ejecutables
-tests/              Pruebas automatizadas
-requirements.txt    Dependencias de ejecución
-requirements-dev.txt Dependencias de desarrollo y pruebas
-pyproject.toml      Configuración del paquete y pytest
+src/mocap/             Código de la aplicación
+scripts/               Diagnósticos ejecutables
+tests/                 Pruebas automatizadas
+requirements.txt       Dependencias de ejecución
+requirements-dev.txt   Dependencias de desarrollo
+pyproject.toml         Configuración del paquete y pytest
 ```
 
 ## Etapas de implementación
@@ -70,4 +94,8 @@ pyproject.toml      Configuración del paquete y pytest
 8. Cámara en vivo, previsualización y GUI.
 9. Pruebas de integración y control de recursos.
 
-La integración con Blender se mantendrá separada del Python de la aplicación; no se instalará Blender mediante pip. Los archivos `.blend`, entornos virtuales, modelos descargados y salidas generadas no deben subirse al repositorio.
+La integración con Blender permanecerá separada del Python de la aplicación; Blender no se instala mediante pip. Los archivos `.blend`, entornos virtuales, modelos descargados y salidas generadas no deben subirse al repositorio.
+
+## Regla de trabajo con Git
+
+El estado inicial funcional se mantiene como una base recuperable. Las siguientes etapas se harán en commits pequeños y verificables; si una etapa rompe algo, se podrá volver al último estado estable.

@@ -1,21 +1,27 @@
-"""Comprueba las dependencias principales sin abrir cámara ni Blender."""
+"""Comprueba el entorno base sin abrir cámara ni Blender."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Permite ejecutar el diagnóstico desde el checkout sin instalar el paquete.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 
 def main() -> int:
-    print(f"Python: {sys.version.split()[0]} ({'64-bit' if sys.maxsize > 2**32 else '32-bit'})")
+    version = sys.version_info[:2]
+    bits = "64-bit" if sys.maxsize > 2**32 else "32-bit"
 
-    if sys.version_info[:2] != (3, 12):
-        print("ERROR: este conjunto de dependencias está fijado para Python 3.12.x.")
-        print("Crea el entorno con: py -3.12 -m venv .venv")
+    print(f"Python: {sys.version.split()[0]} ({bits})")
+
+    if version != (3, 10):
+        print("ERROR: esta base está fijada para Python 3.10.x.")
+        print("Crea el entorno con: py -3.10 -m venv .venv")
+        return 1
+
+    if bits != "64-bit":
+        print("ERROR: se requiere Python de 64 bits.")
         return 1
 
     try:
