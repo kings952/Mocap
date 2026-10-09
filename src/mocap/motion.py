@@ -167,20 +167,26 @@ def _normalize_pose(pose: PoseFrame, calibration: Calibration) -> tuple[PoseLand
         (p.y - calibration.center_y) / calibration.scale,
         p.z / calibration.scale, p.visibility, p.presence) for p in pose.landmarks)
 
-def _pose_distance(first: PoseFrame, second: PoseFrame) -> float:
-    a, b = {p.name: p for p in first.landmarks}, {p.name: p for p in second.landmarks}
+def _landmark_distance(first: Iterable[PoseLandmark], second: Iterable[PoseLandmark]) -> float:
+    a = {p.name: p for p in first}
+    b = {p.name: p for p in second}
     common = a.keys() & b.keys()
     if not common:
         return 0.0
-    return sum(sqrt((a[n].x-b[n].x)**2 + (a[n].y-b[n].y)**2 + (a[n].z-b[n].z)**2)
-               for n in common) / len(common)
+    return sum(
+        sqrt((a[n].x - b[n].x) ** 2 + (a[n].y - b[n].y) ** 2 + (a[n].z - b[n].z) ** 2)
+        for n in common
+    ) / len(common)
 
-def _pose_spread(poses: Iterable[PoseFrame]) -> float:
-    poses = tuple(poses)
+def _pose_distance(first: PoseFrame, second: PoseFrame) -> float:
+    return _landmark_distance(first.landmarks, second.landmarks)
+
+def _pose_spread(poses: Iterable[Iterable[PoseLandmark]]) -> float:
+    poses = tuple(tuple(p) for p in poses)
     if len(poses) < 2:
         return 0.0
     reference = poses[0]
-    return max(_pose_distance(reference, p) for p in poses[1:])
+    return max(_landmark_distance(reference, current) for current in poses[1:])
 
 def smooth_pose(previous: PoseFrame | None, current: PoseFrame, alpha: float = 0.45) -> PoseFrame:
     alpha = min(1.0, max(0.0, alpha))
