@@ -4,98 +4,78 @@ Aplicación de captura de movimiento para detectar poses desde imagen, vídeo o 
 
 ## Estado
 
-Este repositorio se está reconstruyendo desde una base limpia. El primer objetivo es tener un entorno reproducible y verificable antes de implementar detección, calibración, filtrado, retargeting, Blender y GUI.
+Este repositorio se reconstruye por etapas verificables. `main` conserva la base estable; el desarrollo activo se realiza en ramas `feature/*`.
 
-## Entorno de desarrollo
+## Entorno
 
-- Windows 10/11 de 64 bits.
-- **Python 3.10.x de 64 bits**.
+- Windows 10/11 64 bits.
+- Python 3.10.x 64 bits.
 - Blender 4.4.x instalado por separado.
-- Git.
-- Webcam para las pruebas de captura en vivo.
+- Webcam para las pruebas posteriores de captura en vivo.
 
-### Por qué Python 3.10
+La combinación de dependencias está fijada para Python 3.10 porque la máquina de desarrollo dispone de Python 3.10 y 3.14, y NumPy 1.26.4 no proporciona wheel para Python 3.13/3.14.
 
-La máquina de desarrollo dispone actualmente de Python 3.10 y 3.14, pero no de Python 3.12.
+## Validar el entorno
 
-La dependencia fijada **NumPy 1.26.4** no tiene wheel para Python 3.13/3.14. Por eso **no se debe crear este entorno con Python 3.14** ni cambiar NumPy a 2.x como solución rápida: MediaPipe y el resto del stack deben validarse juntos.
-
-Para esta base se usa Python 3.10, que permite instalar NumPy 1.26.4 mediante wheel y mantiene la combinación fijada con MediaPipe 0.10.21.
-
-Comprueba tus intérpretes:
-
-```powershell
-py -0p
-```
-
-Debe aparecer Python 3.10.
-
-## Crear el entorno desde cero
-
-Desde:
-
-```text
-D:\Mios\mocap_live_blender
-```
-
-Ejecuta:
+Desde `D:\\Mios\\mocap_live_blender`:
 
 ```powershell
 py -3.10 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python --version
+.\\.venv\\Scripts\\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
-```
-
-La versión debe mostrar:
-
-```text
-Python 3.10.x
-```
-
-Si PowerShell bloquea la activación, usa directamente:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-```
-
-## Validar la base
-
-```powershell
-python scripts\smoke_test.py
+python scripts\\smoke_test.py
 python -m pytest -q
 ```
 
-El smoke test verifica Python, NumPy, SciPy, OpenCV, MediaPipe y PySide6. No abre la webcam ni necesita Blender.
+## Etapa actual — entrada y pose
 
-## Estructura
+Esta rama implementa la primera capa funcional:
 
-```text
-src/mocap/             Código de la aplicación
-scripts/               Diagnósticos ejecutables
-tests/                 Pruebas automatizadas
-requirements.txt       Dependencias de ejecución
-requirements-dev.txt   Dependencias de desarrollo
-pyproject.toml         Configuración del paquete y pytest
+- **RF-002:** detección de persona y keypoints.
+- **RF-003:** pose desde una imagen.
+- **RF-004:** procesamiento de vídeo frame a frame.
+- Lectura de imagen con OpenCV sin cargar recursos innecesarios.
+- Lectura de vídeo mediante iterador, sin cargar el vídeo completo en RAM.
+- Detección mediante MediaPipe Pose.
+- Modelo `model_complexity=0` como configuración inicial de bajo consumo.
+- Salida propia `PoseFrame/PoseLandmark`, desacoplada de MediaPipe.
+- Liberación explícita del detector mediante context manager.
+
+### Probar una imagen
+
+Usa una imagen de una persona:
+
+```powershell
+python scripts\\pose_test.py --image "D:\\ruta\\persona.jpg"
 ```
 
-## Etapas de implementación
+La prueba procesa la imagen como frame **1**, aunque todavía no genera keyframes. Esto deja preparada la regla RF-008 para la siguiente etapa.
 
-1. Entorno reproducible y diagnóstico.
-2. Entrada de imagen y vídeo.
-3. Detección de pose.
-4. Calibración sin generar keyframes.
-5. Filtro de jitter y umbral de movimiento.
-6. Mapeo de keypoints al rig `IK1_regular`.
-7. Comunicación con Blender 4.4 y guardado de una copia del archivo.
-8. Cámara en vivo, previsualización y GUI.
-9. Pruebas de integración y control de recursos.
+### Probar un vídeo
 
-La integración con Blender permanecerá separada del Python de la aplicación; Blender no se instala mediante pip. Los archivos `.blend`, entornos virtuales, modelos descargados y salidas generadas no deben subirse al repositorio.
+```powershell
+python scripts\\pose_test.py --video "D:\\ruta\\movimiento.mp4" --max-frames 120
+```
 
-## Regla de trabajo con Git
+El vídeo se procesa frame a frame y se libera `VideoCapture` al terminar.
 
-El estado inicial funcional se mantiene como una base recuperable. Las siguientes etapas se harán en commits pequeños y verificables; si una etapa rompe algo, se podrá volver al último estado estable.
+## Siguiente etapa
+
+La siguiente rama/commit funcional será la **calibración**:
+
+1. Definir el estado `CALIBRATING`.
+2. Estabilizar la pose inicial.
+3. No generar keyframes durante calibración.
+4. Guardar una referencia corporal.
+5. Preparar la comparación de movimiento para el filtro posterior.
+
+Después vendrán jitter/umbral, retargeting al rig `IK1_regular`, integración con Blender, live camera y GUI.
+
+## Git
+
+- `main`: base estable.
+- `feature/*`: desarrollo de cada etapa.
+- Cada etapa debe terminar con pruebas pasando y un commit identificable.
+- No se suben `.blend`, `.pyc`, `.venv`, modelos ni archivos generados.
