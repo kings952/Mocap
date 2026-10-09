@@ -1,117 +1,168 @@
 # MOCAP — Genesis + Blender 4.4
 
-Aplicación de captura de movimiento para detectar poses desde imagen, vídeo o cámara y transferirlas por etapas al rig Genesis de Blender 4.4.
+Aplicación Windows para detectar movimiento desde imagen, vídeo o cámara, filtrar jitter, generar keyframes y transferirlos a un Genesis real en Blender 4.4.
 
-## Estado de esta rama
+## Rama y estado
 
-La rama \`feature/01-entrada-y-pose\` consolida las primeras capas funcionales del documento de requerimientos. El pipeline puede probarse sin depender todavía de Blender en cada frame.
+Rama de trabajo: `feature/01-entrada-y-pose`.
 
-### Implementado
+Esta entrega consolida en un único commit la base funcional del pipeline:
+- imagen, vídeo y cámara con OpenCV;
+- MediaPipe Pose;
+- calibración con comprobación de estabilidad;
+- suavizado;
+- comparación contra el último keyframe aceptado;
+- eliminación de micro-movimientos;
+- KeyframeStore serializable;
+- GUI PySide6;
+- inspección del armature real;
+- exportación de keyframes a una copia del `.blend`;
+- liberación determinista de cámara/detector.
 
-- RF-002: detección de persona y keypoints.
-- RF-003: pose desde una imagen.
-- RF-004: vídeo frame a frame.
-- RF-005: captura de cámara en vivo.
-- RF-006: calibración inicial mediante muestras de una pose estable.
-- RF-007: la calibración no produce keyframes.
-- RF-008: una imagen se representa en el frame 1.
-- RF-009: vídeo/live comparan el movimiento y aceptan solo cambios significativos.
-- RF-010: filtro contra micro-movimientos mediante umbral y suavizado.
-- Liberación determinista de cámara y detector.
-- Visualización del esqueleto detectado.
-- Modelo de keyframes independiente de Blender.
+El código externo no importa `bpy`: Blender usa su propio Python mediante un proceso separado.
 
 ## Entorno
 
-- Windows 10/11 64 bits.
-- Python 3.10.x 64 bits.
-- Blender 4.4.x instalado por separado.
-- Webcam para la prueba live.
+La máquina objetivo usa Windows 11, Ryzen 7 7435HS, 16 GB RAM y RTX 2050 4 GB. Para mantener el consumo bajo, MediaPipe usa `model_complexity=0`.
 
-La combinación de dependencias está fijada para Python 3.10 porque la máquina de desarrollo dispone de Python 3.10 y 3.14, y NumPy 1.26.4 no proporciona wheel para Python 3.13/3.14.
+Se requiere Python 3.10.x 64 bits.
 
-\`\`\`powershell
+```powershell
+cd D:\Mios\mocap_live_blender
+git checkout feature/01-entrada-y-pose
+git pull
 py -3.10 -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
-python scripts\\smoke_test.py
+python scripts\smoke_test.py
 python -m pytest -q
-\`\`\`
+```
 
-## Pruebas
+## 1. Probar imagen
 
-### Imagen
+```powershell
+python scripts\pose_test.py --image "D:\ruta\persona.jpg"
+python scripts\process_test.py --image "D:\ruta\persona.jpg"
+```
 
-\`\`\`powershell
-python scripts\\pose_test.py --image "D:\\ruta\\persona.jpg"
-\`\`\`
+La segunda prueba crea `outputs/image_keyframe.json`. Una imagen siempre queda en frame 1.
 
-Una imagen queda asociada al frame 1 en el modelo de keyframes. Esta etapa todavía no escribe un \`.blend\`.
+## 2. Probar vídeo
 
-### Vídeo
+```powershell
+python scripts\pose_test.py --video "D:\ruta\movimiento.mp4" --max-frames 120
+```
 
-\`\`\`powershell
-python scripts\\pose_test.py --video "D:\\ruta\\movimiento.mp4" --max-frames 120
-\`\`\`
+Para comprobar además calibración, filtro y keyframes:
 
-El vídeo se lee mediante un iterador y no se carga completo en memoria.
+```powershell
+python -c "import sys;sys.path.insert(0,'src');from mocap.app import MocapPipeline;r=MocapPipeline().process_video(r'D:\ruta\movimiento.mp4',300);print('frames=',r.processed_frames,'detectados=',r.detected_frames,'keyframes=',r.keyframes.frames())"
+```
 
-### Cámara + calibración + filtro
+## 3. Probar cámara
 
-\`\`\`powershell
-python scripts\\live_test.py
-\`\`\`
+```powershell
+python scripts\live_test.py
+```
 
-Controles:
+- `C`: calibrar.
+- Mantén T-pose estable hasta completar.
+- `R`: grabar.
+- Mover brazos/cuerpo: solo cambios significativos generan keyframes.
+- `X`: reset.
+- `ESC`: salir.
 
-- C: comenzar calibración.
-- Mantener una pose estable hasta llegar al 100%.
-- R: comenzar grabación.
-- Moverse: solo los cambios que superen el umbral generan keyframes.
-- X: reiniciar.
-- ESC: salir.
+## 4. Probar el Genesis real
+
+Primero inspecciona tu archivo real. No copies el `.blend` al repositorio.
+
+```powershell
+python scripts\blender_inspect.py --blend "D:\my blender\bases\Baseic_flutter.blend"
+```
+
+Debe aparecer `"ok": true` y encontrarse:
+`IK1_regular` con `Bone`, `HAND_IK.L`, `HAND_IK.R`, `HAND_POLE.L`, `HAND_POLE.R`, `FOOT_IK.L`, `FOOT_IK.R`, `FOOT_POLE.L`, `FOOT_POLE.R`.
+
+Si falta un control, **no fuerces la exportación**: el worker aborta para no dañar el rig.
+
+## 5. Exportar una prueba a Blender
+
+Después de tener keyframes, desde Python:
+
+```powershell
+python -c "import sys;sys.path.insert(0,'src');from mocap.app import MocapPipeline;from pathlib import Path;p=MocapPipeline();r=p.process_video(r'D:\ruta\movimiento.mp4',300);print(p.save_to_blender(r'D:\my blender\bases\Baseic_flutter.blend',r'D:\my blender\bases\MOCAP_TEST.blend',r.keyframes).message)"
+```
+
+Abre `MOCAP_TEST.blend` manualmente en Blender 4.4 y revisa:
+1. que `IK1_regular` exista;
+2. que los controles tengan keyframes;
+3. que la línea de tiempo empiece en frame 1;
+4. que el personaje se mueva sin modificar el archivo original.
+
+El worker usa desplazamientos relativos y conservadores sobre los controles IK. Esto es deliberado: el rig no se recrea ni se destruyen constraints.
+
+## 6. Ejecutar la GUI
+
+```powershell
+python scripts\run_app.py
+```
+
+Botones:
+- **Cargar .blend**: selecciona el Genesis.
+- **Imagen**: detecta y crea frame 1.
+- **Vídeo**: procesa los primeros 300 frames.
+- **Cámara**: muestra el esqueleto.
+- **Calibrar**: inicia la captura estable.
+- **Grabar**: habilita keyframes.
+- **Reset**: limpia el estado.
+- **Guardar**: genera una copia animada del `.blend`.
+
+## 7. Orden recomendado de validación
+
+No pruebes todo de golpe. Haz exactamente:
+
+```
+A. smoke_test.py
+B. pytest
+C. pose_test.py con una imagen
+D. process_test.py con esa imagen
+E. pose_test.py con un vídeo corto
+F. live_test.py con cámara
+G. blender_inspect.py con Baseic_flutter.blend
+H. exportación a MOCAP_TEST.blend
+I. GUI
+```
+
+Si A–H pasan, ya tenemos validada la tubería de datos hasta Blender. La calidad del retargeting se debe ajustar con el comportamiento de tu Genesis real; los nombres de controles están validados de forma estricta para evitar escribir sobre un rig diferente.
+
+## Archivos que nunca se suben
+
+`.blend`, `.blend1`, `.blend2`, `.venv`, `.pyc`, modelos descargados, grabaciones y `outputs/`.
 
 ## Arquitectura
 
-\`\`\`
+```
 Imagen / Vídeo / Cámara
-          |
-          v
-     OpenCV input
-          |
-          v
-    MediaPipe Pose
-          |
-          v
- PoseFrame/PoseLandmark
-          |
-          +--> Calibración
-          |
-          +--> Suavizado + filtro
-          |
-          v
-     KeyframeStore
-          |
-          v
-   Adaptador Genesis
-          |
-          v
-       Blender 4.4
-\`\`\`
+        ↓
+      OpenCV
+        ↓
+  MediaPipe Pose
+        ↓
+Calibración estable
+        ↓
+Suavizado
+        ↓
+Comparación contra último keyframe aceptado
+        ↓
+    KeyframeStore
+        ↓
+BlenderBridge
+        ↓
+Blender 4.4 / IK1_regular
+        ↓
+Copia .blend animada
+```
 
-El adaptador Genesis/Blender se mantiene separado deliberadamente: antes de escribir transformaciones sobre \`IK1_regular\` hay que validar el mapeo exacto de los controles del \`.blend\` real.
-
-## Próxima integración
-
-La siguiente capa será el adaptador Blender:
-
-1. Cargar una copia del \`.blend\`.
-2. Encontrar el armature \`IK1_regular\`.
-3. Validar \`Bone\`, \`HAND_IK.L/R\`, \`HAND_POLE.L/R\`, \`FOOT_IK.L/R\` y \`FOOT_POLE.L/R\`.
-4. Aplicar una pose de prueba.
-5. Guardar keyframes en Blender.
-6. Conectar el retargeting de pose humana a esos controles.
-
-No se suben \`.blend\`, \`.pyc\`, \`.venv\`, modelos ni archivos generados.
+La entrada y el procesamiento se mantienen fuera de Blender para no iniciar Blender por cada frame. Blender solo se invoca para inspección/exportación en esta etapa.
