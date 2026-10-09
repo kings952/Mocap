@@ -1,6 +1,5 @@
-# MOCAP - entorno de desarrollo Python 3.11
-# Compatible con la base del proyecto y separado de la instalacion de Blender 4.4.
-
+# Entorno soportado: CPython 3.12 x64 en Windows 10/11.
+# NumPy 1.26.4 no tiene wheel para Python 3.13/3.14; no instalar con esos intérpretes.
 numpy==1.26.4
 scipy==1.15.2
 opencv-python==4.11.0.86
