@@ -1,1 +1,102 @@
-.venv
+ 
+
+# ==============================
+# PYTHON - Archivos compilados
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==============================
+# ENTORNOS VIRTUALES
+# ==============================
+.venv/
+venv/
+env/
+ENV/
+
+# ==============================
+# DISTRIBUCIÓN Y COMPILACIÓN
+# ==============================
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# ==============================
+# TESTS Y COBERTURA
+# ==============================
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# ==============================
+# TYPE CHECKING Y LINTING
+# ==============================
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# ==============================
+# NOTEBOOKS
+# ==============================
+.ipynb_checkpoints/
+
+# ==============================
+# LOGS Y ARCHIVOS TEMPORALES
+# ==============================
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*.swo
+~$*
+
+# ==============================
+# CONFIGURACIONES DE EDITORES
+# ==============================
+.vscode/
+.idea/
+*.code-workspace
+
+# ==============================
+# SISTEMA OPERATIVO
+# ==============================
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ==============================
+# VARIABLES DE ENTORNO Y SECRETOS
+# ==============================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ==============================
+# BASES DE DATOS LOCALES
+# ==============================
+*.sqlite
+*.sqlite3
+*.db
+
+# ==============================
+# ARCHIVOS GENERADOS POR LA APLICACIÓN
+# Personaliza estas reglas
+# ==============================
+# recordings/
+# outputs/
+# generated/
+# cache/
